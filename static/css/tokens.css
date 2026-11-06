@@ -1,0 +1,169 @@
+/* Tokens da Maré, seguindo o manual de marca da HL (oceano profundo).
+   Dark é o padrão (azul-abismo); o light entra quando o sistema pede e serve para impressos.
+   Marca: Lexend Exa (títulos), Manrope (texto), JetBrains Mono (labels e números).
+   Regras: ciano é um ponto de luz por tela, separação por hairline (sem sombra), cantos 4/8/14px, pílula só no status. */
+
+@font-face {
+  font-family: "Lexend Exa";
+  src: url("/fonts/lexend-exa-latin-500-normal.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Lexend Exa";
+  src: url("/fonts/lexend-exa-latin-ext-500-normal.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Manrope";
+  src: url("/fonts/manrope-latin-wght-normal.woff2") format("woff2");
+  font-weight: 200 800; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Manrope";
+  src: url("/fonts/manrope-latin-ext-wght-normal.woff2") format("woff2");
+  font-weight: 200 800; font-style: normal; font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+  font-weight: 100 800; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/jetbrains-mono-latin-ext-wght-normal.woff2") format("woff2");
+  font-weight: 100 800; font-style: normal; font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  color-scheme: dark light;
+
+  /* oceano: fixos nos dois temas */
+  --ocean-abyss: #030714;
+  --ocean-deep: #0a1e43;
+  --ocean-cobalt: #1963a6;
+  --ocean-azure: #1aa0c5;
+  --ocean-neon: #22c3e6;
+  --ocean-foam: #dbeaf3;
+
+  /* interface (dark, padrão) */
+  --paper: #050b1c;          /* bg */
+  --surface: #091734;
+  --surface-2: #0c1f45;
+  --line: #17315c;
+  --field-border: #4a6fa3;   /* line-strong */
+  --ink: #e8f1f8;
+  --ink-2: #8fa8c4;          /* ink-muted */
+  --ink-3: #8fa8c4;
+
+  /* logo: ondas e lua; no claro a espuma vira azul-tinta e a lua fica teal */
+  --logo-a: #dbeaf3;
+  --logo-b: #1963a6;
+  --logo-c: #22c3e6;
+
+  --cyan: #22c3e6;
+  --cyan-hover: #5bd6ef;
+  --cyan-glow: rgb(34 195 230 / 0.35);
+  --on-cyan: #050b1c;
+  --focus: #22c3e6;
+  --tint: #0e3f76;           /* cyan-soft */
+  --bar: #1963a6;
+  --bar-hover: #22c3e6;
+
+  /* a faixa da conferência é um painel de oceano, igual nos dois temas */
+  --band: #0a1e43;
+  --band-line-strong: #17315c;
+  --band-ink: #e8f1f8;
+  --band-ink-2: #8fa8c4;
+  --band-line: rgb(219 234 243 / 0.16);
+  --band-ok: #3fb950;
+  --band-warn: #d29922;
+
+  /* estados */
+  --ok: #3fb950;
+  --warn: #d29922;
+  --danger: #f85149;
+  --danger-hover: #ff7b72;
+  --danger-on: #050b1c;
+  --warn-bg: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  --warn-ink: var(--warn);
+  --bad-bg: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  --bad-ink: var(--danger);
+
+  /* sem sombras: a separação é feita com hairline */
+  --shadow-1: none;
+  --shadow-2: none;
+
+  /* tipografia */
+  --font-display: "Lexend Exa", "Manrope", system-ui, sans-serif;
+  --font: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-0: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-h2: 1.25rem;                                    /* h3 do manual: 20/28 */
+  --fs-h1: clamp(1.625rem, 1.2rem + 1.7vw, 2.5rem);    /* h1 do manual: 40/44, fluido */
+  --fs-total: clamp(1.75rem, 1.35rem + 1.5vw, 2.25rem);
+
+  /* espaçamento: grade de 4px */
+  --s-1: 0.25rem; --s-2: 0.5rem; --s-3: 0.75rem; --s-4: 1rem; --s-5: 1.25rem;
+  --s-6: 1.5rem; --s-8: 2rem; --s-10: 2.5rem; --s-12: 3rem; --s-16: 4rem;
+  --gutter: clamp(1rem, 0.6rem + 2vw, 2rem);
+
+  --r-sm: 4px;      /* tags */
+  --r: 8px;         /* botões, inputs */
+  --r-lg: 14px;     /* cards, painéis */
+  --r-data: 4px;
+
+  --nav-h: 64px;
+  --z-nav: 20;
+  --z-toast: 40;
+  --z-tip: 50;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 150ms;
+  --t-base: 200ms;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --paper: #f4f8fb;
+    --surface: #ffffff;
+    --surface-2: #e8f0f7;
+    --line: #cfdbe8;
+    --field-border: #6f86a3;
+    --ink: #061226;
+    --ink-2: #475b75;
+    --ink-3: #475b75;
+
+    --logo-a: #061226;
+    --logo-c: #0e7490;
+
+    --cyan: #0e7490;
+    --cyan-hover: #0b5e75;
+    --cyan-glow: rgb(14 116 144 / 0.18);
+    --on-cyan: #ffffff;
+    --focus: #0e7490;
+    --tint: #d4eef7;
+    --bar: #1963a6;
+    --bar-hover: #0e7490;
+
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --danger: #cf222e;
+    --danger-hover: #a8161f;
+    --danger-on: #ffffff;
+  }
+}

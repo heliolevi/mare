@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Maré</title>
+  <meta name="description" content="Importe o OFX ou CSV da fatura do cartão e veja para onde o dinheiro foi.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f4f8fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#050b1c" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="/logo/favicon.svg">
+  <link rel="icon" type="image/png" sizes="48x48" href="/icons/favicon-48.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/lexend-exa-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/manrope-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/app.css">
+  <script type="module" src="/dist/main.js"></script>
+</head>
+<body>
+  <!-- Abertura: a logo faz o movimento de onda enquanto o app carrega; o main.js a remove depois da primeira tela. -->
+  <div id="splash" class="splash" role="status">
+    <div class="splash-miolo">
+      <svg class="logo-onda logo-onda-splash" viewBox="0 0 96 96" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="splash-g" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.22" stop-color="#fff"/><stop offset="0.78" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+          <mask id="splash-m" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96"><rect x="10" y="0" width="68" height="96" fill="url(#splash-g)"/></mask>
+        </defs>
+        <circle class="logo-c onda-lua" cx="77" cy="23" r="8"/>
+        <g mask="url(#splash-m)">
+          <g class="onda onda-a"><path class="logo-a" d="M-48 54 q12 -12 24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0"/></g>
+          <g class="onda onda-b"><path class="logo-b" d="M-48 77 q12 12 24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0"/></g>
+        </g>
+      </svg>
+      <p class="splash-nome" aria-hidden="true">maré</p>
+      <span class="sr-only">Carregando a Maré</span>
+    </div>
+  </div>
+
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="mare-simbolo" viewBox="0 0 96 96">
+      <circle class="logo-c" cx="77" cy="23" r="8"/>
+      <path class="logo-a" d="M12 60 C22 48 32 48 42 58 C52 68 62 64 76 48"/>
+      <path class="logo-b" d="M12 78 C22 66 32 66 42 76 C52 86 62 82 76 66"/>
+    </symbol>
+  </svg>
+
+  <div class="app">
+    <header class="topbar"><a class="logo" href="#/resumo" aria-label="Maré, ir para o resumo"><svg class="logo-simbolo" aria-hidden="true"><use href="#mare-simbolo"/></svg><span class="logo-nome">maré</span></a></header>
+    <nav class="nav" aria-label="Principal">
+      <a class="brand logo" href="#/resumo" aria-label="Maré, ir para o resumo"><svg class="logo-simbolo" aria-hidden="true"><use href="#mare-simbolo"/></svg><span class="logo-nome">maré</span></a>
+      <a href="#/resumo" data-rota="resumo"><span class="nav-ico"><span class="ico i-squares-four" aria-hidden="true"></span></span><span>Resumo</span></a>
+      <a href="#/transacoes" data-rota="transacoes"><span class="nav-ico"><span class="ico i-list-bullets" aria-hidden="true"></span></span><span>Transações</span></a>
+      <a href="#/parcelas" data-rota="parcelas"><span class="nav-ico"><span class="ico i-calendar-dots" aria-hidden="true"></span></span><span>Parcelas</span></a>
+      <a href="#/faturas" data-rota="faturas"><span class="nav-ico"><span class="ico i-file-arrow-up" aria-hidden="true"></span></span><span>Faturas</span></a>
+      <div class="nav-conta">
+        <p class="nav-usuario" id="nav-usuario"></p>
+        <button type="button" class="nav-sair" id="sair"><span class="nav-ico"><span class="ico i-sign-out" aria-hidden="true"></span></span><span>Sair</span></button>
+      </div>
+    </nav>
+    <main id="conteudo" tabindex="-1" aria-busy="true"></main>
+  </div>
+
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <div id="tooltip" role="tooltip" hidden></div>
+
+  <dialog id="confirmar" aria-labelledby="confirmar-titulo">
+    <form method="dialog">
+      <h2 id="confirmar-titulo"></h2>
+      <p id="confirmar-texto"></p>
+      <div class="dialog-acoes">
+        <button class="btn btn-secundario" value="cancelar" id="confirmar-cancelar">Cancelar</button>
+        <button class="btn btn-perigo" value="ok" id="confirmar-ok">Excluir</button>
+      </div>
+    </form>
+  </dialog>
+
+  <noscript>
+    <link rel="stylesheet" href="/css/sem-js.css">
+    <p class="sem-js-aviso">A Maré precisa de JavaScript para funcionar.</p>
+  </noscript>
+</body>
+</html>

@@ -1,0 +1,3 @@
+/* Carregado só dentro de <noscript>: sem JavaScript a abertura nunca sairia sozinha, então ela some. */
+.splash { display: none !important; }
+.sem-js-aviso { padding: 1.5rem; }

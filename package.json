@@ -1,0 +1,15 @@
+{
+  "name": "mare-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node frontend/build.mjs",
+    "dev": "node frontend/build.mjs --watch",
+    "typecheck": "tsc --noEmit -p frontend/tsconfig.json",
+    "check": "npm run typecheck && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}
