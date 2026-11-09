@@ -42,7 +42,13 @@ Testes do backend: `python -m pytest`
 - A sessão é um cookie `HttpOnly`, `SameSite=Strict` (e `Secure` quando o acesso é por HTTPS), renovado a cada uso e válido por 14 dias (`SESSAO_DIAS`). O JavaScript do app não enxerga o token e nada de sensível vai para o `localStorage`.
 - Depois da primeira conta, o cadastro fica fechado. Para abrir para mais gente, defina `CADASTRO_ABERTO=1` no `.env`.
 - Tentativas de login e de cadastro, e envios de arquivo (`UPLOADS_POR_MINUTO`, padrão 10 por pessoa), têm limite de taxa. Os contadores ficam na memória do processo; se rodar com vários processos, o limite vale por processo.
-- Em breve: e-mail de confirmação na criação da conta. A tela de cadastro já avisa disso; por enquanto não há envio de e-mail e quem cria a conta já entra.
+- **Confirmação de e-mail por código (SMTP).** Com `CONFIRMAR_EMAIL=1`, criar conta não cria nada ainda: o servidor guarda um cadastro pendente, envia um código de 6 números e a conta só passa a existir quando a pessoa digita esse código na tela. Configure `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `SMTP_REMETENTE` e `SMTP_SEGURANCA` no `.env` (veja `.env.example`); a senha do SMTP fica só lá. Sem a variável (padrão `0`), o cadastro segue direto, como antes.
+  - O código vale 10 minutos (`CODIGO_MINUTOS`), tem 5 tentativas e só funciona uma vez; o reenvio espera 60 s (`REENVIO_SEGUNDOS`) e cada cadastro aceita no máximo 5 envios. Só o hash do código fica no banco.
+  - O cadastro fica preso ao navegador que o preencheu (cookie `mare_cadastro`, HttpOnly), então saber o e-mail de alguém e o código não basta para concluir o cadastro por ele.
+  - Se o e-mail já tem conta, a resposta é idêntica à de um cadastro novo e o dono recebe um aviso em vez do código (ninguém descobre quem tem conta).
+  - Com a confirmação ligada, o servidor se recusa a subir sem SMTP configurado, e recusa `SMTP_SEGURANCA=nenhuma` fora de localhost se houver senha.
+  - Contas criadas antes de ligar a confirmação continuam entrando normalmente.
+  - Para testar sem servidor de e-mail real, rode um coletor local, por exemplo `python -m aiosmtpd -n -l 127.0.0.1:2525`, com `SMTP_HOST=127.0.0.1 SMTP_PORTA=2525 SMTP_SEGURANCA=nenhuma SMTP_REMETENTE=mare@exemplo.com`; o código aparece no terminal dele.
 - Reimportar uma fatura mais completa do mesmo cartão (mesmo emissor, vencimento próximo, mesmas linhas mais algumas novas) atualiza a fatura existente e só acrescenta os lançamentos novos, em vez de duplicar.
 
 ### Segurança e limites

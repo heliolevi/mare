@@ -4,6 +4,8 @@ from __future__ import annotations
 import ipaddress
 import logging
 import mimetypes
+import re
+import secrets
 from typing import Annotated
 from urllib.parse import urlsplit
 
@@ -16,7 +18,7 @@ from pydantic import BaseModel, Field
 from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import config, db, seguranca
+from . import config, correio, db, seguranca
 from .categorize import CATEGORIAS, CATEGORIAS_EDITAVEIS
 from .norm import limpar_texto, parse_date, parse_money_cents
 from .pipeline import PipelineError, importar
@@ -24,6 +26,8 @@ from .pipeline import PipelineError, importar
 log = logging.getLogger("mare")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 app = FastAPI(title="Maré", docs_url=None, redoc_url=None, openapi_url=None)
+if config.CONFIRMAR_EMAIL:
+    correio.exigir_configuracao()  # falha já na subida se faltar SMTP_HOST etc.
 
 MAX_ID = 2**63 - 1  # o SQLite guarda inteiros de 64 bits; acima disso a consulta estoura
 IdDb = Annotated[int, Path(ge=1, le=MAX_ID)]
@@ -63,9 +67,16 @@ async def _inesperado(request: Request, exc: Exception):
 
 # ---------- contas e sessão: cookie HttpOnly (o JavaScript do app nunca enxerga o token) ----------
 COOKIE = "mare_sessao"
+# Cookie do cadastro em andamento: prende a confirmação ao navegador que preencheu o formulário. Quem só sabe o e-mail de
+# outra pessoa não consegue concluir (nem sequestrar) o cadastro dela, mesmo que o código chegue à caixa certa.
+COOKIE_CAD = "mare_cadastro"
+CAMINHO_CAD = "/api/auth"
+MAX_TENTATIVAS_CODIGO = 5
+MAX_ENVIOS_POR_CADASTRO = 5
 _lim = {
     "login_ip": seguranca.Limite(10, 60), "login_email": seguranca.Limite(8, 600),
     "cadastro": seguranca.Limite(10, 600), "upload": seguranca.Limite(10, 60),
+    "envio_ip": seguranca.Limite(10, 3600), "envio_email": seguranca.Limite(5, 3600), "codigo_ip": seguranca.Limite(15, 600),
 }
 
 
@@ -115,7 +126,8 @@ class Credenciais(BaseModel):
 def auth_eu(request: Request):
     """Responde 200 mesmo sem sessão: assim a tela de entrada não gera erro vermelho no console do navegador."""
     u = db.usuario_da_sessao(request.cookies.get(COOKIE, ""), config.SESSAO_DIAS)
-    return {"usuario": _publico(u) if u else None, "cadastro_aberto": config.CADASTRO_ABERTO or db.total_usuarios() == 0}
+    return {"usuario": _publico(u) if u else None, "cadastro_aberto": config.CADASTRO_ABERTO or db.total_usuarios() == 0,
+            "confirmar_email": config.CONFIRMAR_EMAIL}
 
 
 @app.post("/api/auth/cadastro", status_code=201)
@@ -134,12 +146,127 @@ def auth_cadastro(corpo: Cadastro, request: Request, resposta: Response):
         raise erro(422, "email_invalido", "Esse e-mail não parece válido. Confira e tente de novo.")
     if (problema := seguranca.problema_na_senha(corpo.senha, email)):
         raise erro(422, "senha_fraca", problema)
+    if config.CONFIRMAR_EMAIL:
+        return _cadastro_com_confirmacao(email, nome, corpo.senha, request, resposta)
     try:
         uid = db.criar_usuario(email, nome, seguranca.hash_senha(corpo.senha))
     except db.EmailEmUso:
         raise erro(409, "email_em_uso", "Já existe uma conta com esse e-mail. Entre nela ou use outro e-mail.")
     _abrir_sessao(request, resposta, uid)
     return {"usuario": _publico({"nome": nome, "email": email, "email_confirmado": 0})}
+
+
+# ---------- confirmação de e-mail: a conta só nasce depois que o código enviado por SMTP é digitado ----------
+class Codigo(BaseModel):
+    codigo: str = Field(max_length=20)
+
+
+def _espere_reenvio(segundos: int) -> HTTPException:
+    e = erro(429, "reenvio_cedo", f"Já enviamos um código. Espere {segundos} s para pedir outro.")
+    e.headers = {"Retry-After": str(segundos)}
+    return e
+
+
+def _guardar_cookie_cadastro(request: Request, resposta: Response, token: str) -> None:
+    resposta.set_cookie(COOKIE_CAD, token, max_age=config.CODIGO_MINUTOS * 60, httponly=True, samesite="strict",
+                        secure=request.url.scheme == "https", path=CAMINHO_CAD)
+
+
+def _falha_no_envio() -> HTTPException:
+    return erro(503, "email_indisponivel", "Não consegui enviar o e-mail agora. Tente de novo em alguns minutos.")
+
+
+def _checar_limites_de_envio(request: Request, email: str) -> None:
+    ip = _ip(request)
+    if (w := max(_lim["envio_ip"].espera(ip), _lim["envio_email"].espera(email))):
+        raise _espere(w, "Muitos códigos pedidos.")
+    _lim["envio_ip"].registrar(ip)
+    _lim["envio_email"].registrar(email)
+
+
+def _cadastro_com_confirmacao(email: str, nome: str, senha: str, request: Request, resposta: Response):
+    _checar_limites_de_envio(request, email)
+    token = seguranca.novo_token()
+    if db.usuario_por_email(email):
+        # Mesma resposta de um cadastro novo: quem tenta não descobre que o e-mail já tem conta. A pessoa dona do e-mail
+        # recebe um aviso em vez do código.
+        seguranca.gastar_tempo_de_senha(senha)
+        try:
+            correio.enviar_aviso_conta_existente(email)
+        except correio.ErroEnvio:
+            raise _falha_no_envio()
+    else:
+        codigo, sal = seguranca.novo_codigo(), secrets.token_hex(16)
+        senha_hash = seguranca.hash_senha(senha)
+        if (espera := db.pendente_guardar(email, nome, senha_hash, token, seguranca.hash_codigo(codigo, sal), sal,
+                                          config.CODIGO_MINUTOS, config.REENVIO_SEGUNDOS)):
+            raise _espere_reenvio(espera)
+        try:
+            correio.enviar_codigo(email, nome, codigo, config.CODIGO_MINUTOS)
+        except correio.ErroEnvio:
+            db.pendente_remover(email)
+            raise _falha_no_envio()
+    _guardar_cookie_cadastro(request, resposta, token)
+    resposta.status_code = 202
+    return {"pendente": True, "email": email, "codigo_minutos": config.CODIGO_MINUTOS, "reenvio_segundos": config.REENVIO_SEGUNDOS}
+
+
+@app.post("/api/auth/confirmar", status_code=201)
+def auth_confirmar(corpo: Codigo, request: Request, resposta: Response):
+    if not config.CONFIRMAR_EMAIL:
+        raise erro(400, "confirmacao_desligada", "A confirmação por e-mail não está ligada neste servidor.")
+    ip = _ip(request)
+    if (w := _lim["codigo_ip"].espera(ip)):
+        raise _espere(w, "Muitos códigos errados.")
+    p = db.pendente_por_token(request.cookies.get(COOKIE_CAD, ""))
+    codigo = re.sub(r"\s", "", corpo.codigo or "")  # aceita "123 456"
+    if not p:
+        _lim["codigo_ip"].registrar(ip)
+        raise erro(400, "codigo_invalido", "Código incorreto ou vencido. Confira o e-mail ou peça um novo código.")
+    n = db.pendente_tentativa(p["email"])  # conta antes de comparar
+    if not (n <= MAX_TENTATIVAS_CODIGO and len(codigo) == 6 and codigo.isdigit()
+            and seguranca.codigo_confere(codigo, p["sal"], p["codigo"])):
+        _lim["codigo_ip"].registrar(ip)
+        if n >= MAX_TENTATIVAS_CODIGO:
+            db.pendente_remover(p["email"])
+            raise erro(429, "codigo_bloqueado", "Você errou o código vezes demais. Preencha o cadastro de novo para receber outro.")
+        raise erro(400, "codigo_invalido", f"Código incorreto. Você ainda tem {MAX_TENTATIVAS_CODIGO - n} tentativa(s).")
+    if not config.CADASTRO_ABERTO and db.total_usuarios() > 0:  # a regra vale de novo na hora de criar (alguém pode ter entrado no meio)
+        db.pendente_remover(p["email"])
+        raise erro(403, "cadastro_fechado", "O cadastro de novas contas está fechado neste servidor.")
+    if not db.pendente_remover(p["email"]):  # o código vale uma vez só, mesmo com dois pedidos ao mesmo tempo
+        raise erro(400, "codigo_invalido", "Código incorreto ou vencido. Confira o e-mail ou peça um novo código.")
+    try:
+        uid = db.criar_usuario(p["email"], p["nome"], p["senha"], confirmado=True)
+    except db.EmailEmUso:
+        raise erro(409, "email_em_uso", "Já existe uma conta com esse e-mail. Entre nela.")
+    _abrir_sessao(request, resposta, uid)
+    resposta.delete_cookie(COOKIE_CAD, path=CAMINHO_CAD, httponly=True, samesite="strict")
+    return {"usuario": _publico({"nome": p["nome"], "email": p["email"], "email_confirmado": 1})}
+
+
+@app.post("/api/auth/reenviar", status_code=202)
+def auth_reenviar(request: Request):
+    if not config.CONFIRMAR_EMAIL:
+        raise erro(400, "confirmacao_desligada", "A confirmação por e-mail não está ligada neste servidor.")
+    p = db.pendente_por_token(request.cookies.get(COOKIE_CAD, ""))
+    if not p:
+        raise erro(400, "cadastro_vencido", "Esse cadastro venceu. Preencha o formulário de novo.")
+    _checar_limites_de_envio(request, p["email"])
+    codigo, sal = seguranca.novo_codigo(), secrets.token_hex(16)
+    r = db.pendente_reenviar(p["email"], seguranca.hash_codigo(codigo, sal), sal, config.CODIGO_MINUTOS, config.REENVIO_SEGUNDOS,
+                             MAX_ENVIOS_POR_CADASTRO)
+    if r == -2:
+        raise erro(400, "cadastro_vencido", "Esse cadastro venceu. Preencha o formulário de novo.")
+    if r == -1:
+        raise erro(429, "limite_de_envios", "Você já pediu códigos demais para esse cadastro. Preencha o formulário de novo daqui a pouco.")
+    if r > 0:
+        raise _espere_reenvio(r)
+    try:
+        correio.enviar_codigo(p["email"], p["nome"], codigo, config.CODIGO_MINUTOS)
+    except correio.ErroEnvio:
+        raise _falha_no_envio()
+    return {"pendente": True, "email": p["email"], "codigo_minutos": config.CODIGO_MINUTOS, "reenvio_segundos": config.REENVIO_SEGUNDOS}
 
 
 @app.post("/api/auth/entrar")

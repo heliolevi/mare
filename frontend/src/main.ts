@@ -141,7 +141,7 @@ async function revelar(): Promise<void> {
   tirarSplash();
 }
 
-function mostrarAcesso(cadastroAberto: boolean, mensagem = ''): void {
+function mostrarAcesso(cfg: ConfigAcesso, mensagem = ''): void {
   geracao++;
   state.usuario = null;
   state.faturas = [];
@@ -151,7 +151,7 @@ function mostrarAcesso(cadastroAberto: boolean, mensagem = ''): void {
   main.className = '';
   main.removeAttribute('aria-busy');
   main.replaceChildren(telaAcesso({
-    cadastroAberto, mensagem,
+    cadastroAberto: cfg.cadastro_aberto, confirmarEmail: cfg.confirmar_email, mensagem,
     aoEntrar: async (u) => { await iniciar(u); },
   }));
 }
@@ -169,16 +169,17 @@ async function iniciar(u: Usuario): Promise<void> {
 
 async function sair(): Promise<void> {
   try { await api('/api/auth/sair', { method: 'POST' }); } catch { /* o cookie vence sozinho; segue para a tela de acesso */ }
-  mostrarAcesso(await cadastroAberto());
+  mostrarAcesso(await configAcesso());
 }
 
-async function cadastroAberto(): Promise<boolean> {
-  try { return (await api<Sessao>('/api/auth/eu')).cadastro_aberto; } catch { return false; }
+type ConfigAcesso = Pick<Sessao, 'cadastro_aberto' | 'confirmar_email'>;
+async function configAcesso(): Promise<ConfigAcesso> {
+  try { return await api<Sessao>('/api/auth/eu'); } catch { return { cadastro_aberto: false, confirmar_email: false }; }
 }
 
 document.getElementById('sair')?.addEventListener('click', () => { void sair(); });
 window.addEventListener('auth-required', () => {
-  void cadastroAberto().then((aberto) => mostrarAcesso(aberto, 'Sua sessão terminou. Entre de novo para continuar.'));
+  void configAcesso().then((cfg) => mostrarAcesso(cfg, 'Sua sessão terminou. Entre de novo para continuar.'));
 });
 window.addEventListener('hashchange', aoMudarRota);
 window.addEventListener('offline', () => toast('Você está sem conexão. Dá para ver o que já carregou, mas não importar.', { erro: true }));
@@ -186,7 +187,7 @@ window.addEventListener('offline', () => toast('Você está sem conexão. Dá pa
 (async () => {
   try {
     const sessao = await api<Sessao>('/api/auth/eu');
-    if (!sessao.usuario) mostrarAcesso(sessao.cadastro_aberto);
+    if (!sessao.usuario) mostrarAcesso(sessao);
     else await iniciar(sessao.usuario);
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) return;

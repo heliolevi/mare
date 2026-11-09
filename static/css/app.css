@@ -556,6 +556,9 @@ details[open] > summary::after { transform: rotate(180deg); }
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); color: var(--ink-2); font-size: var(--fs-sm);
 }
 .acesso-aviso .ico { margin-top: 0.15em; color: var(--cyan); }
+.entrada-codigo { font-size: 1.75rem; font-weight: 600; letter-spacing: 0.5em; text-align: center; font-variant-numeric: tabular-nums; padding-left: 0.5em; }
+.acesso-passos { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-2); }
+.acesso-passos .btn-texto:disabled { color: var(--ink-2); cursor: default; }
 .entrada:focus-visible { border-color: var(--cyan); }
 @media (min-width: 900px) {
   .acesso { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-rows: 1fr; }

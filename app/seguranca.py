@@ -77,6 +77,20 @@ def novo_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def novo_codigo() -> str:
+    """Código de 6 dígitos para o e-mail de confirmação (aleatório criptográfico; 5 tentativas por código limitam o chute)."""
+    return f"{secrets.randbelow(10**6):06d}"
+
+
+def hash_codigo(codigo: str, sal: str) -> str:
+    """O banco guarda só o HMAC do código: ler o arquivo não revela o código ainda válido."""
+    return hmac.new(bytes.fromhex(sal), codigo.encode(), hashlib.sha256).hexdigest()
+
+
+def codigo_confere(codigo: str, sal: str, gravado: str) -> bool:
+    return hmac.compare_digest(hash_codigo(codigo.strip(), sal), gravado)
+
+
 def digest_token(token: str) -> str:
     """O banco guarda só o hash do token da sessão: quem lê o arquivo do banco não consegue entrar com ele."""
     return hashlib.sha256(token.encode()).hexdigest()
