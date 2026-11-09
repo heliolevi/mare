@@ -1,5 +1,5 @@
 // Service worker mínimo: guarda o "casco" do app para abrir offline. Dados da API nunca são guardados.
-const VERSAO = 'v6';
+const VERSAO = 'v7';
 const CASCO = `mare-casco-${VERSAO}`;
 const ARQUIVOS = [
   '/', '/index.html', '/manifest.webmanifest',

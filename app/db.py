@@ -23,6 +23,14 @@ CREATE TABLE IF NOT EXISTS usuarios (
   email_confirmado INTEGER NOT NULL DEFAULT 0,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- Cadastros que esperam o código do e-mail: a conta só vira linha de `usuarios` quando o código é confirmado.
+CREATE TABLE IF NOT EXISTS cadastros_pendentes (
+  email TEXT PRIMARY KEY, nome TEXT NOT NULL, senha TEXT NOT NULL,
+  token TEXT NOT NULL,      -- sha256 do cookie que prende a confirmação ao navegador que fez o cadastro
+  codigo TEXT NOT NULL, sal TEXT NOT NULL,
+  tentativas INTEGER NOT NULL DEFAULT 0, envios INTEGER NOT NULL DEFAULT 1,
+  enviado_em TEXT NOT NULL DEFAULT (datetime('now')), expira_em TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessoes (
   token TEXT PRIMARY KEY,
   usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
@@ -55,6 +63,7 @@ CREATE INDEX IF NOT EXISTS ix_tx_fatura ON transacoes(fatura_id);
 CREATE INDEX IF NOT EXISTS ix_tx_chave ON transacoes(chave);
 CREATE INDEX IF NOT EXISTS ix_fat_usuario ON faturas(usuario_id);
 CREATE INDEX IF NOT EXISTS ix_sessoes_usuario ON sessoes(usuario_id);
+CREATE INDEX IF NOT EXISTS ix_pendentes_token ON cadastros_pendentes(token);
 """
 
 ORIGEM = "COALESCE(NULLIF(emissor,''), origem, '')"  # separa cartões: pelo nome, ou pela assinatura do arquivo
@@ -178,10 +187,11 @@ def total_usuarios() -> int:
         return c.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
 
 
-def criar_usuario(email: str, nome: str, senha_hash: str) -> int:
+def criar_usuario(email: str, nome: str, senha_hash: str, confirmado: bool = False) -> int:
     with conn() as c:
         try:
-            cur = c.execute("INSERT INTO usuarios (email, nome, senha) VALUES (?,?,?)", (email, nome, senha_hash))
+            cur = c.execute("INSERT INTO usuarios (email, nome, senha, email_confirmado) VALUES (?,?,?,?)",
+                            (email, nome, senha_hash, int(confirmado)))
         except sqlite3.IntegrityError:
             raise EmailEmUso() from None
         uid = cur.lastrowid
@@ -197,6 +207,67 @@ def usuario_por_email(email: str) -> dict | None:
     with conn() as c:
         r = c.execute("SELECT * FROM usuarios WHERE email=?", (email,)).fetchone()
         return dict(r) if r else None
+
+
+# ---------------------------------------------------------------- cadastros pendentes (confirmação por e-mail)
+def _segundos_desde(c: sqlite3.Connection, coluna: str, tabela_where: str, params: tuple) -> int:
+    return int(c.execute(f"SELECT CAST(strftime('%s','now') - strftime('%s', {coluna}) AS INTEGER) FROM {tabela_where}", params).fetchone()[0])
+
+
+def pendente_guardar(email: str, nome: str, senha_hash: str, token: str, codigo_hash: str, sal: str,
+                     validade_min: int, reenvio_s: int) -> int:
+    """Grava (ou troca) o cadastro pendente do e-mail. Devolve 0 se gravou; se já havia um enviado há menos de `reenvio_s`
+    segundos, não mexe em nada e devolve quantos segundos faltam (quem chega no meio da janela não consegue trocar a senha
+    de um cadastro que outra pessoa acabou de abrir)."""
+    with conn() as c:
+        c.execute("DELETE FROM cadastros_pendentes WHERE expira_em < datetime('now')")
+        antigo = c.execute("SELECT envios FROM cadastros_pendentes WHERE email=?", (email,)).fetchone()
+        if antigo:
+            passou = _segundos_desde(c, "enviado_em", "cadastros_pendentes WHERE email=?", (email,))
+            if passou < reenvio_s:
+                return reenvio_s - passou
+        c.execute("""INSERT OR REPLACE INTO cadastros_pendentes (email, nome, senha, token, codigo, sal, tentativas, envios, enviado_em, expira_em)
+                     VALUES (?,?,?,?,?,?,0,1,datetime('now'),datetime('now', ?))""",
+                  (email, nome, senha_hash, digest_token(token), codigo_hash, sal, f"+{int(validade_min)} minutes"))
+        return 0
+
+
+def pendente_por_token(token: str) -> dict | None:
+    if not token or len(token) > 200:
+        return None
+    with conn() as c:
+        c.execute("DELETE FROM cadastros_pendentes WHERE expira_em < datetime('now')")
+        r = c.execute("SELECT * FROM cadastros_pendentes WHERE token=?", (digest_token(token),)).fetchone()
+        return dict(r) if r else None
+
+
+def pendente_tentativa(email: str) -> int:
+    """Conta uma tentativa de código (antes de comparar, para pedidos simultâneos não ganharem chutes extras)."""
+    with conn() as c:
+        c.execute("UPDATE cadastros_pendentes SET tentativas=tentativas+1 WHERE email=?", (email,))
+        r = c.execute("SELECT tentativas FROM cadastros_pendentes WHERE email=?", (email,)).fetchone()
+        return r[0] if r else 99
+
+
+def pendente_reenviar(email: str, codigo_hash: str, sal: str, validade_min: int, reenvio_s: int, max_envios: int) -> int:
+    """Novo código para o mesmo cadastro. 0 = trocado; >0 = segundos de espera; -1 = limite de envios do cadastro."""
+    with conn() as c:
+        r = c.execute("SELECT envios FROM cadastros_pendentes WHERE email=?", (email,)).fetchone()
+        if not r:
+            return -2
+        passou = _segundos_desde(c, "enviado_em", "cadastros_pendentes WHERE email=?", (email,))
+        if passou < reenvio_s:
+            return reenvio_s - passou
+        if r["envios"] >= max_envios:
+            return -1
+        c.execute("""UPDATE cadastros_pendentes SET codigo=?, sal=?, tentativas=0, envios=envios+1, enviado_em=datetime('now'),
+                     expira_em=datetime('now', ?) WHERE email=?""", (codigo_hash, sal, f"+{int(validade_min)} minutes", email))
+        return 0
+
+
+def pendente_remover(email: str) -> bool:
+    with conn() as c:
+        return c.execute("DELETE FROM cadastros_pendentes WHERE email=?", (email,)).rowcount == 1
 
 
 def criar_sessao(uid: int, token: str, dias: int) -> None:

@@ -24,6 +24,22 @@ SCRYPT_LOG_N = int(os.getenv("SCRYPT_LOG_N", "17"))
 SESSAO_DIAS = int(os.getenv("SESSAO_DIAS", "14"))
 # Depois da primeira conta, só cria novas quem estiver com CADASTRO_ABERTO=1. Padrão fechado: app pessoal, dados financeiros.
 CADASTRO_ABERTO = os.getenv("CADASTRO_ABERTO", "0").lower() in ("1", "true", "sim")
+
+def _bool(nome: str, padrao: str = "0") -> bool:
+    return os.getenv(nome, padrao).strip().lower() in ("1", "true", "sim", "yes")
+
+
+# Confirmação de e-mail no cadastro: com CONFIRMAR_EMAIL=1 a conta só passa a existir depois que a pessoa digita o código
+# de 6 dígitos enviado por SMTP. Exige SMTP_HOST (o servidor se recusa a subir sem ele, em vez de deixar o cadastro quebrado).
+CONFIRMAR_EMAIL = _bool("CONFIRMAR_EMAIL")
+CODIGO_MINUTOS = int(os.getenv("CODIGO_MINUTOS", "10"))        # validade do código
+REENVIO_SEGUNDOS = int(os.getenv("REENVIO_SEGUNDOS", "60"))    # espera mínima entre dois envios
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORTA = int(os.getenv("SMTP_PORTA", "587"))
+SMTP_USUARIO = os.getenv("SMTP_USUARIO", "").strip()
+SMTP_SENHA = os.getenv("SMTP_SENHA", "")
+SMTP_REMETENTE = os.getenv("SMTP_REMETENTE", "").strip() or SMTP_USUARIO  # endereço do "De:"; padrão: o próprio usuário SMTP
+SMTP_SEGURANCA = os.getenv("SMTP_SEGURANCA", "starttls").strip().lower()  # starttls (587) | ssl (465) | nenhuma (só localhost)
 # Envios de arquivo por usuário por minuto.
 UPLOADS_POR_MINUTO = int(os.getenv("UPLOADS_POR_MINUTO", "10"))
 DB_PATH = os.getenv("DB_PATH", str(ROOT / "data" / "mare.db"))

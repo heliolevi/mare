@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config, db
+from app import config, correio, db
 from app import main
 from app.main import app
 from app.models import RawTx
@@ -15,6 +15,7 @@ def banco_temporario(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "ALLOWED_HOSTS", {"testserver"})
     monkeypatch.setattr(config, "SCRYPT_LOG_N", 4)  # senha rápida nos testes; em produção é 17
     monkeypatch.setattr(config, "CADASTRO_ABERTO", True)
+    monkeypatch.setattr(config, "CONFIRMAR_EMAIL", False)  # os testes de confirmação ligam por conta própria
     for lim in main._lim.values():
         lim.limpar()
 
@@ -533,3 +534,263 @@ def test_respostas_nao_vazam_detalhes_internos():
     for proibido in ("Traceback", "sqlite", config.DB_PATH, "senha", "scrypt", "usuario_id", '"hash"', "origem"):
         assert proibido not in texto, proibido
     assert "no-store" in c.get("/api/faturas").headers["cache-control"]
+
+
+# ---------- confirmação de e-mail por código (SMTP) ----------
+class Caixa:
+    """Substitui o envio SMTP: guarda o que seria enviado."""
+    def __init__(self):
+        self.codigos, self.avisos, self.falhar = [], [], False
+
+    def codigo(self, para, nome, codigo, minutos):
+        if self.falhar:
+            raise correio.ErroEnvio("falhou")
+        self.codigos.append((para, nome, codigo))
+
+    def aviso(self, para):
+        if self.falhar:
+            raise correio.ErroEnvio("falhou")
+        self.avisos.append(para)
+
+
+@pytest.fixture
+def caixa(monkeypatch):
+    c = Caixa()
+    monkeypatch.setattr(config, "CONFIRMAR_EMAIL", True)
+    monkeypatch.setattr(correio, "enviar_codigo", c.codigo)
+    monkeypatch.setattr(correio, "enviar_aviso_conta_existente", c.aviso)
+    return c
+
+
+def cadastrar(c, email="ana@exemplo.com", nome="Ana", senha=SENHA):
+    return c.post("/api/auth/cadastro", json={"nome": nome, "email": email, "senha": senha})
+
+
+def test_conta_so_nasce_depois_do_codigo(caixa):
+    c = TestClient(app)
+    r = cadastrar(c)
+    assert r.status_code == 202 and r.json()["pendente"] is True and r.json()["email"] == "ana@exemplo.com"
+    assert "usuario" not in r.json()
+    assert db.total_usuarios() == 0 and db.usuario_por_email("ana@exemplo.com") is None
+    assert c.get("/api/auth/eu").json()["usuario"] is None  # nenhuma sessão aberta ainda
+    para, nome, codigo = caixa.codigos[-1]
+    assert para == "ana@exemplo.com" and nome == "Ana" and len(codigo) == 6 and codigo.isdigit()
+    r = c.post("/api/auth/confirmar", json={"codigo": codigo})
+    assert r.status_code == 201 and r.json()["usuario"]["email"] == "ana@exemplo.com"
+    assert c.get("/api/auth/eu").json()["usuario"]["email"] == "ana@exemplo.com"
+    assert db.usuario_por_email("ana@exemplo.com")["email_confirmado"] == 1
+    # entra normalmente depois, com a senha escolhida no cadastro
+    c2 = TestClient(app)
+    assert c2.post("/api/auth/entrar", json={"email": "ana@exemplo.com", "senha": SENHA}).status_code == 200
+
+
+def test_codigo_aceita_espacos_e_vale_uma_vez(caixa):
+    c = TestClient(app)
+    cadastrar(c)
+    cod = caixa.codigos[-1][2]
+    assert c.post("/api/auth/confirmar", json={"codigo": f"{cod[:3]} {cod[3:]}"}).status_code == 201
+    assert c.post("/api/auth/confirmar", json={"codigo": cod}).status_code == 400  # já usado
+
+
+def test_codigo_errado_conta_tentativas_e_bloqueia(caixa):
+    c = TestClient(app)
+    cadastrar(c)
+    certo = caixa.codigos[-1][2]
+    errado = "000000" if certo != "000000" else "111111"
+    for i in range(4):
+        r = c.post("/api/auth/confirmar", json={"codigo": errado})
+        assert r.status_code == 400 and r.json()["detail"]["codigo"] == "codigo_invalido"
+    r = c.post("/api/auth/confirmar", json={"codigo": errado})  # 5ª tentativa errada
+    assert r.status_code == 429 and r.json()["detail"]["codigo"] == "codigo_bloqueado"
+    # o código certo já não vale: o cadastro foi descartado
+    assert c.post("/api/auth/confirmar", json={"codigo": certo}).status_code == 400
+    assert db.total_usuarios() == 0
+
+
+def test_codigo_certo_na_ultima_tentativa_ainda_funciona(caixa):
+    c = TestClient(app)
+    cadastrar(c)
+    certo = caixa.codigos[-1][2]
+    errado = "000000" if certo != "000000" else "111111"
+    for _ in range(4):
+        c.post("/api/auth/confirmar", json={"codigo": errado})
+    assert c.post("/api/auth/confirmar", json={"codigo": certo}).status_code == 201
+
+
+def test_codigo_mal_formado_nao_passa(caixa):
+    c = TestClient(app)
+    cadastrar(c)
+    for ruim in ["", "12345", "1234567", "abcdef"]:  # cada um gasta uma das 5 tentativas
+        assert c.post("/api/auth/confirmar", json={"codigo": ruim}).status_code == 400
+    assert db.total_usuarios() == 0
+
+
+def test_codigo_vencido_nao_vale(caixa):
+    c = TestClient(app)
+    cadastrar(c)
+    cod = caixa.codigos[-1][2]
+    with db.conn() as k:
+        k.execute("UPDATE cadastros_pendentes SET expira_em=datetime('now','-1 minutes')")
+    r = c.post("/api/auth/confirmar", json={"codigo": cod})
+    assert r.status_code == 400 and db.total_usuarios() == 0
+
+
+def test_so_o_navegador_que_cadastrou_confirma(caixa):
+    c = TestClient(app)
+    cadastrar(c)
+    cod = caixa.codigos[-1][2]
+    outro = TestClient(app)  # quem só conhece o e-mail e o código, sem o cookie, não conclui
+    assert outro.post("/api/auth/confirmar", json={"codigo": cod}).status_code == 400
+    assert db.total_usuarios() == 0
+    assert c.post("/api/auth/confirmar", json={"codigo": cod}).status_code == 201
+
+
+def test_cadastro_pendente_guarda_so_hashes(caixa):
+    c = TestClient(app)
+    cadastrar(c)
+    cod = caixa.codigos[-1][2]
+    token = c.cookies.get("mare_cadastro")
+    with db.conn() as k:
+        linha = dict(k.execute("SELECT * FROM cadastros_pendentes").fetchone())
+    guardado = " ".join(str(v) for v in linha.values())
+    assert cod not in guardado.replace(linha["sal"], "") and SENHA not in guardado and token not in guardado
+    assert linha["senha"].startswith("scrypt") or "$" in linha["senha"]
+
+
+def test_cookie_do_cadastro_e_httponly_e_restrito(caixa):
+    c = TestClient(app)
+    r = cadastrar(c)
+    set_cookie = r.headers["set-cookie"].lower()
+    assert "mare_cadastro=" in set_cookie and "httponly" in set_cookie and "samesite=strict" in set_cookie and "path=/api/auth" in set_cookie
+
+
+def test_reenvio_respeita_a_espera_e_invalida_o_codigo_antigo(caixa):
+    c = TestClient(app)
+    cadastrar(c)
+    antigo = caixa.codigos[-1][2]
+    r = c.post("/api/auth/reenviar")
+    assert r.status_code == 429 and "Retry-After" in r.headers and len(caixa.codigos) == 1
+    with db.conn() as k:
+        k.execute("UPDATE cadastros_pendentes SET enviado_em=datetime('now','-120 seconds')")
+    r = c.post("/api/auth/reenviar")
+    assert r.status_code == 202 and len(caixa.codigos) == 2
+    novo = caixa.codigos[-1][2]
+    if novo != antigo:
+        assert c.post("/api/auth/confirmar", json={"codigo": antigo}).status_code == 400
+    assert c.post("/api/auth/confirmar", json={"codigo": novo}).status_code == 201
+
+
+def test_reenvio_tem_teto_por_cadastro(caixa):
+    c = TestClient(app)
+    cadastrar(c)
+    for _ in range(4):
+        with db.conn() as k:
+            k.execute("UPDATE cadastros_pendentes SET enviado_em=datetime('now','-120 seconds')")
+        for lim in main._lim.values():
+            lim.limpar()
+        assert c.post("/api/auth/reenviar").status_code == 202
+    with db.conn() as k:
+        k.execute("UPDATE cadastros_pendentes SET enviado_em=datetime('now','-120 seconds')")
+    for lim in main._lim.values():
+        lim.limpar()
+    r = c.post("/api/auth/reenviar")
+    assert r.status_code == 429 and r.json()["detail"]["codigo"] == "limite_de_envios"
+
+
+def test_reenviar_sem_cadastro_em_andamento(caixa):
+    assert TestClient(app).post("/api/auth/reenviar").status_code == 400
+
+
+def test_email_ja_cadastrado_responde_igual_e_avisa_o_dono(caixa):
+    dono = TestClient(app)
+    cadastrar(dono)
+    dono.post("/api/auth/confirmar", json={"codigo": caixa.codigos[-1][2]})
+    caixa.codigos.clear()
+    intruso = TestClient(app)
+    r = cadastrar(intruso, nome="Outra", senha="outra frase longa e boa")
+    assert r.status_code == 202 and r.json()["pendente"] is True and r.json()["email"] == "ana@exemplo.com"
+    assert caixa.codigos == [] and caixa.avisos == ["ana@exemplo.com"]
+    # o código nunca existiu: nada a confirmar, e a conta original segue intacta
+    assert intruso.post("/api/auth/confirmar", json={"codigo": "123456"}).status_code == 400
+    assert db.total_usuarios() == 1
+    assert TestClient(app).post("/api/auth/entrar", json={"email": "ana@exemplo.com", "senha": SENHA}).status_code == 200
+
+
+def test_falha_no_smtp_da_503_e_nao_deixa_cadastro_pendente(caixa):
+    caixa.falhar = True
+    r = cadastrar(TestClient(app))
+    assert r.status_code == 503 and r.json()["detail"]["codigo"] == "email_indisponivel"
+    with db.conn() as k:
+        assert k.execute("SELECT COUNT(*) FROM cadastros_pendentes").fetchone()[0] == 0
+    caixa.falhar = False
+    for lim in main._lim.values():
+        lim.limpar()
+    assert cadastrar(TestClient(app)).status_code == 202  # sem espera de reenvio presa
+
+
+def test_cadastro_em_andamento_nao_troca_a_senha_de_quem_chegou_primeiro(caixa):
+    primeiro = TestClient(app)
+    cadastrar(primeiro)
+    cod = caixa.codigos[-1][2]
+    intruso = TestClient(app)
+    r = cadastrar(intruso, senha="senha do intruso muito longa")
+    assert r.status_code == 429 and len(caixa.codigos) == 1
+    assert primeiro.post("/api/auth/confirmar", json={"codigo": cod}).status_code == 201
+    assert TestClient(app).post("/api/auth/entrar", json={"email": "ana@exemplo.com", "senha": SENHA}).status_code == 200
+
+
+def test_cadastro_fechado_vale_de_novo_na_confirmacao(caixa, monkeypatch):
+    c = TestClient(app)
+    monkeypatch.setattr(config, "CADASTRO_ABERTO", True)
+    cadastrar(c, "a@exemplo.com")
+    cod = caixa.codigos[-1][2]
+    db.criar_usuario("dono@exemplo.com", "Dono", "x", confirmado=True)  # alguém entrou no meio
+    monkeypatch.setattr(config, "CADASTRO_ABERTO", False)
+    r = c.post("/api/auth/confirmar", json={"codigo": cod})
+    assert r.status_code == 403 and db.usuario_por_email("a@exemplo.com") is None
+
+
+def test_eu_informa_se_a_confirmacao_esta_ligada(caixa, monkeypatch):
+    assert TestClient(app).get("/api/auth/eu").json()["confirmar_email"] is True
+    monkeypatch.setattr(config, "CONFIRMAR_EMAIL", False)
+    assert TestClient(app).get("/api/auth/eu").json()["confirmar_email"] is False
+
+
+def test_sem_confirmacao_o_cadastro_continua_direto(monkeypatch):
+    c = TestClient(app)
+    assert cadastrar(c).status_code == 201 and c.get("/api/auth/eu").json()["usuario"] is not None
+    assert c.post("/api/auth/confirmar", json={"codigo": "123456"}).status_code == 400
+    assert c.post("/api/auth/reenviar").status_code == 400
+
+
+def test_limite_de_pedidos_de_codigo_por_email(caixa):
+    codigos_http = []
+    for _ in range(7):
+        codigos_http.append(cadastrar(TestClient(app)).status_code)
+    assert 429 in codigos_http
+
+
+def test_configuracao_smtp_incompleta_falha_na_subida(monkeypatch):
+    monkeypatch.setattr(config, "SMTP_HOST", "")
+    with pytest.raises(RuntimeError):
+        correio.exigir_configuracao()
+    monkeypatch.setattr(config, "SMTP_HOST", "smtp.exemplo.com")
+    monkeypatch.setattr(config, "SMTP_REMETENTE", "")
+    monkeypatch.setattr(config, "SMTP_USUARIO", "")
+    with pytest.raises(RuntimeError):
+        correio.exigir_configuracao()
+    monkeypatch.setattr(config, "SMTP_REMETENTE", "maré@exemplo.com")
+    monkeypatch.setattr(config, "SMTP_SEGURANCA", "nenhuma")
+    monkeypatch.setattr(config, "SMTP_USUARIO", "u")
+    with pytest.raises(RuntimeError):  # senha em claro por rede aberta: recusa
+        correio.exigir_configuracao()
+    monkeypatch.setattr(config, "SMTP_SEGURANCA", "starttls")
+    correio.exigir_configuracao()
+
+
+def test_email_do_codigo_escapa_o_nome_e_nao_vaza_a_senha(monkeypatch):
+    enviados = []
+    monkeypatch.setattr(correio, "enviar", lambda para, assunto, texto, corpo_html=None: enviados.append((para, assunto, texto, corpo_html)))
+    correio.enviar_codigo("a@b.com", "<script>x</script>", "123456", 10)
+    para, assunto, texto, html_ = enviados[0]
+    assert "123456" in texto and "<script>" not in html_ and "&lt;script&gt;" in html_

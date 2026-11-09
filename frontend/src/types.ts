@@ -75,7 +75,7 @@ export interface TrocaCategoria {
 }
 
 export interface Usuario { nome: string; email: string; email_confirmado: boolean }
-export interface Sessao { usuario: Usuario | null; cadastro_aberto: boolean }
+export interface Sessao { usuario: Usuario | null; cadastro_aberto: boolean; confirmar_email: boolean }
 
 export interface Estado {
   usuario: Usuario | null;
