@@ -136,16 +136,26 @@ export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
         h('button', { class: 'btn btn-secundario', type: 'button', onclick: limpar }, 'Limpar filtros')));
       return;
     }
-    const grupos = new Map();
     const pagina = itens.slice(0, limite);
-    for (const t of pagina) { if (!grupos.has(t.data)) grupos.set(t.data, []); grupos.get(t.data).push(t); }
-    lista.replaceChildren(...[...grupos].map(([data, ts]: [string, Transacao[]]) => {
-      const saiu = ts.reduce((s, t) => s + (sentido(t.tipo) === 'saida' ? t.valor_cents : 0), 0);
-      return h('section', { class: 'dia', 'aria-label': diaExtenso(data) },
-        h('h3', { class: 'dia-cab' }, h('span', {}, diaExtenso(data)),
-          saiu ? h('span', { class: 'dia-total num', 'aria-label': `saídas do dia: ${brl(saiu)}` }, brlNegativo(saiu)) : null),
-        ...ts.map(linha));
-    }));
+    if (filtro.ordem !== 'data') {
+      // Ordenado por valor ou por nome: agrupar por dia misturaria a ordem (a maior compra arrastaria o resto do dia).
+      // Fica uma lista plana; cada linha já mostra a própria data.
+      lista.replaceChildren(h('section', { class: 'dia', 'aria-label': ORDENS.find(([v]) => v === filtro.ordem)?.[1] ?? 'Lançamentos' },
+        ...pagina.map(linha)));
+    } else {
+      // O subtotal do dia soma todos os lançamentos dele, não só os que couberam nesta página.
+      const saidasDoDia = new Map<string, number>();
+      for (const t of itens) if (sentido(t.tipo) === 'saida') saidasDoDia.set(t.data, (saidasDoDia.get(t.data) ?? 0) + t.valor_cents);
+      const grupos = new Map<string, Transacao[]>();
+      for (const t of pagina) { const g = grupos.get(t.data); if (g) g.push(t); else grupos.set(t.data, [t]); }
+      lista.replaceChildren(...[...grupos].map(([data, ts]) => {
+        const saiu = saidasDoDia.get(data) ?? 0;
+        return h('section', { class: 'dia', 'aria-label': diaExtenso(data) },
+          h('h3', { class: 'dia-cab' }, h('span', {}, diaExtenso(data)),
+            saiu ? h('span', { class: 'dia-total num', 'aria-label': `saídas do dia: ${brl(saiu)}` }, brlNegativo(saiu)) : null),
+          ...ts.map(linha));
+      }));
+    }
     if (itens.length > pagina.length) {
       lista.append(h('div', { class: 'mais' },
         h('p', {}, `Mostrando ${pagina.length} de ${itens.length}`),
