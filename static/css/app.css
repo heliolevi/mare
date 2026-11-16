@@ -236,9 +236,23 @@ main {
 .chip { display: inline-flex; align-items: center; gap: var(--s-2); min-height: 36px; padding: 0 var(--s-3); border: 1px solid var(--field-border); border-radius: var(--r-sm); background: var(--tint); color: var(--ink); font-size: var(--fs-sm); font-weight: 500; cursor: pointer; max-width: 100%; }
 .chip .ico { width: 0.875rem; height: 0.875rem; flex: none; }
 .btn-texto { min-height: 36px; padding: 0 var(--s-2); border: 0; background: none; color: var(--cyan); font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
-.contagem { color: var(--ink-2); font-size: var(--fs-sm); margin: var(--s-3) 0 var(--s-2); }
+.contagem { color: var(--ink-2); font-size: var(--fs-sm); }
+.balanco { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s-2) var(--s-6); margin: var(--s-4) 0 var(--s-2); }
+.balanco:empty { display: none; }
+.balanco-numeros { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-6); margin: 0; }
+.balanco-item { display: grid; gap: 0; }
+.balanco-item dt { color: var(--ink-2); font-size: var(--fs-xs); font-weight: 600; }
+.balanco-item dd { margin: 0; font-size: var(--fs-lg); font-weight: 650; }
+.balanco-item.bal-saida dd { color: var(--money-out); }
+.balanco-item.bal-entrada dd { color: var(--money-in); }
 .dia { display: grid; gap: 0; margin-top: var(--s-6); }
-.dia > h3 { font: 500 var(--fs-xs) / 1rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); position: sticky; top: 0; padding: var(--s-2) 0; background: var(--paper); z-index: 1; border-bottom: 1px solid var(--line); }
+.dia > h3 {
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-4);
+  font: 600 var(--fs-sm) / 1.25rem var(--font); color: var(--ink); position: sticky; top: 0; padding: var(--s-3) var(--s-2) var(--s-2);
+  background: var(--paper); z-index: 1; border-bottom: 1px solid var(--line);
+}
+.dia-total { color: var(--money-out); font-weight: 600; }
+@media (max-width: 899.98px) { .dia > h3 { top: 3.5rem; } } /* abaixo da barra do topo no celular */
 /* celular: descrição e valor na primeira linha; data e categoria embaixo */
 .tx {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "desc valor" "data cat";
@@ -246,22 +260,32 @@ main {
 }
 .tx:hover { background: color-mix(in srgb, var(--tint) 45%, transparent); }
 .tx-data { grid-area: data; color: var(--ink-2); font-size: var(--fs-sm); }
-.tx-desc { grid-area: desc; font-weight: 500; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); min-width: 0; }
+.tx-desc { grid-area: desc; display: grid; gap: 2px; min-width: 0; padding-block: var(--s-2); }
+.tx-titulo {
+  font-weight: 600; line-height: 1.35; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.tx-titulo .etiqueta { margin-left: var(--s-2); vertical-align: 1px; }
+.tx-detalhe { color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.35; overflow-wrap: anywhere; }
 .tx-cat { grid-area: cat; justify-self: end; min-width: 0; max-width: 100%; }
-.tx-valor { grid-area: valor; font-weight: 600; text-align: right; white-space: nowrap; }
-.tx-credito .tx-valor { color: var(--cyan); }
-.tx-apagado .tx-desc, .tx-apagado .tx-valor { color: var(--ink-2); font-weight: 400; }
+.tx-valor { grid-area: valor; align-self: start; padding-top: var(--s-2); font-weight: 650; font-size: 1rem; text-align: right; white-space: nowrap; }
+/* dinheiro: sai em vermelho, entra em ciano, o que só muda de lugar fica neutro. O sinal (− / +) vem junto: cor nunca sozinha. */
+.tx-saida .tx-valor { color: var(--money-out); }
+.tx-entrada .tx-valor { color: var(--money-in); }
+.tx-neutro .tx-titulo, .tx-neutro .tx-valor { color: var(--ink-2); font-weight: 500; }
 @media (min-width: 760px) {
-  .tx { grid-template-columns: 3.5rem minmax(0, 1fr) minmax(9rem, 13rem) minmax(7.5rem, max-content); grid-template-areas: "data desc cat valor"; gap: var(--s-4); padding-block: 0; min-height: 52px; }
-  .tx-cat { justify-self: start; width: 100%; }
+  .tx { grid-template-columns: 3.5rem minmax(0, 1fr) minmax(9rem, 12rem) minmax(8rem, max-content); grid-template-areas: "data desc cat valor"; gap: var(--s-4); padding-block: var(--s-1); min-height: 60px; }
+  .tx-valor, .tx-data { align-self: center; padding-top: 0; }
+  .tx-cat { justify-self: start; }
 }
 .mais { display: grid; justify-items: center; gap: var(--s-3); padding: var(--s-8) 0 0; color: var(--ink-2); font-size: var(--fs-sm); }
 .etiqueta { display: inline-flex; align-items: center; padding: 2px var(--s-2); border-radius: var(--r-sm); background: var(--tint); color: var(--ink); font: 500 var(--fs-xs) / 1.25rem var(--mono); }
-.cat-troca { position: relative; display: block; }
+.cat-troca { position: relative; display: inline-block; max-width: 100%; }
 .cat-troca select {
   appearance: none; -webkit-appearance: none; min-height: 44px; padding: 0 1.5rem 0 0; background: transparent; border: 0; border-radius: var(--r-sm);
-  color: var(--cyan); font-size: var(--fs-sm); font-weight: 600; cursor: pointer; max-width: 100%; width: 100%; text-overflow: ellipsis;
+  color: var(--cyan); font-size: var(--fs-sm); font-weight: 600; cursor: pointer; max-width: 100%; width: auto; field-sizing: content; text-overflow: ellipsis;
 }
+.cat-troca select:hover { text-decoration: underline; text-underline-offset: 0.25em; }
 .cat-troca::after {
   content: ""; position: absolute; right: 0; top: 50%; width: 0.875rem; height: 0.875rem; margin-top: -0.4375rem; pointer-events: none;
   background-color: var(--cyan); -webkit-mask: var(--i-caret) center / contain no-repeat; mask: var(--i-caret) center / contain no-repeat;
@@ -605,3 +629,10 @@ details[open] > summary::after { transform: rotate(180deg); }
 .pagina-erro .btn-primario { background: var(--ocean-neon); color: var(--ocean-abyss); }
 .pagina-erro .btn-primario:hover { background: #5bd6ef; box-shadow: 0 0 18px rgb(34 195 230 / 0.35); }
 .pagina-erro :focus-visible { box-shadow: 0 0 0 2px #030714, 0 0 0 4px var(--ocean-neon); }
+
+
+/* ---------- dinheiro nas outras telas: gasto em vermelho ---------- */
+.cat-valor, .maiores .valor, .detalhe-mes .valor, .tabela-meses .valor, .fatura-link .total { color: var(--money-out); }
+.ledger .total dd, .ledger .forte dd { color: var(--band-money); }
+.coluna-bt[aria-pressed="true"] .coluna { background: var(--money-out); outline-color: var(--money-out); }
+.coluna-rotulo { color: var(--money-out); }

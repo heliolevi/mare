@@ -49,57 +49,73 @@
 :root {
   color-scheme: dark light;
 
-  /* oceano: fixos nos dois temas */
+  /* Três cores, e só três:
+     MARINHO  estrutura: fundos, superfícies, linhas e texto saem todos dele (neutros tingidos de azul, nunca cinza puro)
+     CIANO    a cor da HL: ação, foco, link, seleção e dinheiro que ENTRA
+     VERMELHO dinheiro que SAI: gastos, total da fatura, barras de categoria e parcelas, e alertas
+     Contrastes conferidos (texto 4.5:1+, bordas 3:1+) nos dois temas. */
+
+  /* oceano (textura da marca e faixa da conferência): fixos nos dois temas, família do marinho */
   --ocean-abyss: #030714;
-  --ocean-deep: #0a1e43;
+  --ocean-deep: #0a1a33;
   --ocean-cobalt: #1963a6;
   --ocean-azure: #1aa0c5;
   --ocean-neon: #22c3e6;
   --ocean-foam: #dbeaf3;
 
-  /* interface (dark, padrão) */
-  --paper: #050b1c;          /* bg */
-  --surface: #091734;
-  --surface-2: #0c1f45;
-  --line: #17315c;
-  --field-border: #4a6fa3;   /* line-strong */
-  --ink: #e8f1f8;
-  --ink-2: #8fa8c4;          /* ink-muted */
-  --ink-3: #8fa8c4;
+  /* marinho: interface (escuro, padrão) */
+  --paper: #06101f;
+  --surface: #0b1a2f;
+  --surface-2: #11233d;
+  --line: #1c3352;
+  --field-border: #55739b;
+  --ink: #eaf2f8;
+  --ink-2: #a3b5ca;
+  --ink-3: #a3b5ca;
 
-  /* logo: ondas e lua; no claro a espuma vira azul-tinta e a lua fica teal */
+  /* ciano */
+  --cyan: #22c3e6;
+  --cyan-hover: #5bd6ef;
+  --cyan-glow: rgb(34 195 230 / 0.30);
+  --on-cyan: #06101f;
+  --focus: #22c3e6;
+  --tint: #0d3448;
+
+  /* vermelho: dinheiro */
+  --money-out: #ff6b6b;
+  --money-out-hover: #ff8f87;
+  --money-in: var(--cyan);
+  --money-neutro: var(--ink-2);
+
+  /* logo: ondas e lua */
   --logo-a: #dbeaf3;
   --logo-b: #1963a6;
   --logo-c: #22c3e6;
 
-  --cyan: #22c3e6;
-  --cyan-hover: #5bd6ef;
-  --cyan-glow: rgb(34 195 230 / 0.35);
-  --on-cyan: #050b1c;
-  --focus: #22c3e6;
-  --tint: #0e3f76;           /* cyan-soft */
-  --bar: #1963a6;
-  --bar-hover: #22c3e6;
+  /* barras de magnitude (gasto por categoria, parcelas futuras) são dinheiro que sai */
+  --bar: color-mix(in srgb, var(--money-out) 78%, var(--surface));
+  --bar-hover: var(--money-out);
 
-  /* a faixa da conferência é um painel de oceano, igual nos dois temas */
-  --band: #0a1e43;
-  --band-line-strong: #17315c;
-  --band-ink: #e8f1f8;
-  --band-ink-2: #8fa8c4;
+  /* faixa da conferência: painel marinho, igual nos dois temas */
+  --band: #0a1a33;
+  --band-line-strong: #1c3352;
+  --band-ink: #eaf2f8;
+  --band-ink-2: #a3b5ca;
   --band-line: rgb(219 234 243 / 0.16);
-  --band-ok: #3fb950;
-  --band-warn: #d29922;
+  --band-money: #ff8f87;
+  --band-ok: #22c3e6;
+  --band-warn: #ff8f87;
 
-  /* estados */
-  --ok: #3fb950;
-  --warn: #d29922;
-  --danger: #f85149;
-  --danger-hover: #ff7b72;
-  --danger-on: #050b1c;
-  --warn-bg: color-mix(in srgb, var(--warn) 14%, var(--surface));
-  --warn-ink: var(--warn);
-  --bad-bg: color-mix(in srgb, var(--danger) 14%, var(--surface));
-  --bad-ink: var(--danger);
+  /* estados: sem verde nem âmbar; conferido usa o ciano, problema usa o vermelho (sempre com ícone e texto) */
+  --ok: var(--cyan);
+  --warn: var(--money-out);
+  --danger: var(--money-out);
+  --danger-hover: var(--money-out-hover);
+  --danger-on: #06101f;
+  --warn-bg: color-mix(in srgb, var(--money-out) 14%, var(--surface));
+  --warn-ink: var(--money-out);
+  --bad-bg: color-mix(in srgb, var(--money-out) 14%, var(--surface));
+  --bad-ink: var(--money-out);
 
   /* sem sombras: a separação é feita com hairline */
   --shadow-1: none;
@@ -113,8 +129,8 @@
   --fs-sm: 0.875rem;
   --fs-0: 1rem;
   --fs-lg: 1.125rem;
-  --fs-h2: 1.25rem;                                    /* h3 do manual: 20/28 */
-  --fs-h1: clamp(1.625rem, 1.2rem + 1.7vw, 2.5rem);    /* h1 do manual: 40/44, fluido */
+  --fs-h2: 1.25rem;
+  --fs-h1: clamp(1.625rem, 1.2rem + 1.7vw, 2.5rem);
   --fs-total: clamp(1.75rem, 1.35rem + 1.5vw, 2.25rem);
 
   /* espaçamento: grade de 4px */
@@ -122,9 +138,9 @@
   --s-6: 1.5rem; --s-8: 2rem; --s-10: 2.5rem; --s-12: 3rem; --s-16: 4rem;
   --gutter: clamp(1rem, 0.6rem + 2vw, 2rem);
 
-  --r-sm: 4px;      /* tags */
-  --r: 8px;         /* botões, inputs */
-  --r-lg: 14px;     /* cards, painéis */
+  --r-sm: 4px;
+  --r: 8px;
+  --r-lg: 14px;
   --r-data: 4px;
 
   --nav-h: 64px;
@@ -139,31 +155,27 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-    --paper: #f4f8fb;
+    --paper: #f4f7fb;
     --surface: #ffffff;
-    --surface-2: #e8f0f7;
-    --line: #cfdbe8;
-    --field-border: #6f86a3;
-    --ink: #061226;
-    --ink-2: #475b75;
-    --ink-3: #475b75;
+    --surface-2: #eaf0f7;
+    --line: #d2dce8;
+    --field-border: #6b809b;
+    --ink: #0b1a2f;
+    --ink-2: #4b5e78;
+    --ink-3: #4b5e78;
 
-    --logo-a: #061226;
-    --logo-c: #0e7490;
+    --logo-a: #0b1a2f;
+    --logo-c: #0b6880;
 
-    --cyan: #0e7490;
-    --cyan-hover: #0b5e75;
-    --cyan-glow: rgb(14 116 144 / 0.18);
+    --cyan: #0b6880;
+    --cyan-hover: #09576b;
+    --cyan-glow: rgb(11 104 128 / 0.18);
     --on-cyan: #ffffff;
-    --focus: #0e7490;
-    --tint: #d4eef7;
-    --bar: #1963a6;
-    --bar-hover: #0e7490;
+    --focus: #0b6880;
+    --tint: #d6eff5;
 
-    --ok: #1a7f37;
-    --warn: #9a6700;
-    --danger: #cf222e;
-    --danger-hover: #a8161f;
+    --money-out: #c62f3a;
+    --money-out-hover: #a3242e;
     --danger-on: #ffffff;
   }
 }

@@ -169,7 +169,7 @@ function maiores(res: ResumoFatura, conta: boolean): HTMLElement | null {
   return h('section', { class: 'secao', 'aria-labelledby': 'tit-maiores' },
     h('h2', { id: 'tit-maiores' }, conta ? 'Maiores saídas' : 'Maiores compras'),
     h('ul', { class: 'maiores' }, res.maiores.map((m) => h('li', { class: 'linha-item' },
-      h('span', { class: 'desc' }, m.descricao),
+      h('span', { class: 'desc' }, m.titulo || m.descricao),
       h('span', { class: 'valor num' }, brl(m.valor_cents)),
       h('span', { class: 'meta' },
         h('span', {}, dm(m.data)),

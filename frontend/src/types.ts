@@ -5,7 +5,12 @@ export type StatusFatura = 'ok' | 'divergente' | 'sem_total';
 export interface Transacao {
   id: number;
   data: string;
+  /** Descrição do banco sem CPF/CNPJ, agência e conta (o servidor tira antes de enviar). */
   descricao: string;
+  /** Quem recebeu ou onde foi a compra, já capitalizado. */
+  titulo: string;
+  /** Tipo da operação e banco, ex.: "Pix enviado · Banco do Brasil". */
+  detalhe: string | null;
   valor_cents: number;
   tipo: TipoTransacao;
   parcela_atual: number | null;
@@ -53,7 +58,7 @@ export interface Fatura extends Omit<FaturaResumo, 'n_transacoes'> {
 
 export interface CategoriaTotal { nome: string; total_cents: number; qtd: number }
 export interface MaiorCompra {
-  descricao: string; valor_cents: number; data: string; categoria: string;
+  descricao: string; titulo: string; valor_cents: number; data: string; categoria: string;
   parcela_atual: number | null; parcela_total: number | null;
 }
 export interface ResumoFatura {
@@ -63,7 +68,7 @@ export interface ResumoFatura {
   maiores: MaiorCompra[];
 }
 
-export interface ParcelaFutura { descricao: string; emissor: string | null; valor_cents: number; parcela: string }
+export interface ParcelaFutura { descricao: string; titulo?: string; emissor: string | null; valor_cents: number; parcela: string }
 export interface MesParcelas { mes: string; total_cents: number; itens: ParcelaFutura[] }
 export interface ParcelasFuturas { total_cents: number; meses: MesParcelas[] }
 
