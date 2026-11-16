@@ -19,7 +19,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, correio, db, seguranca
-from .categorize import CATEGORIAS, CATEGORIAS_EDITAVEIS
+from .categorize import CATEGORIAS_EDITAVEIS
 from .norm import limpar_texto, parse_date, parse_money_cents
 from .pipeline import PipelineError, importar
 
@@ -539,7 +539,8 @@ class Restaurar(BaseModel):
 
 @app.post("/api/transacoes/restaurar", status_code=204)
 def restaurar(corpo: Restaurar, u: Usuario):
-    if corpo.categoria_regra not in CATEGORIAS or any(i.categoria not in CATEGORIAS for i in corpo.itens):
+    # Compra e estorno nunca recebem categoria fixa ("Pagamento de fatura", "Entradas"...), então desfazer também não aceita.
+    if corpo.categoria_regra not in CATEGORIAS_EDITAVEIS or any(i.categoria not in CATEGORIAS_EDITAVEIS for i in corpo.itens):
         raise erro(422, "categoria_invalida", "Categoria desconhecida.")
     if not db.restaurar(u["id"], [{"id": i.id, "categoria": i.categoria} for i in corpo.itens], corpo.chave, corpo.categoria_regra):
         raise erro(422, "chave_desconhecida", "Não encontrei esse estabelecimento para desfazer a troca.")

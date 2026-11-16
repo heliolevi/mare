@@ -85,7 +85,7 @@ class EmailEmUso(Exception):
     pass
 
 
-_VERSAO_SCHEMA = 5
+_VERSAO_SCHEMA = 6
 _prontos: set[str] = set()
 _trava = threading.Lock()
 
@@ -128,6 +128,27 @@ def _migrar(c: sqlite3.Connection, versao: int) -> None:
         c.execute("DROP TABLE regras_antiga")
     if versao < 5:  # 4: categorização nova; 5: mais palavras-chave (oficina, salgados, jogos). Idempotente.
         _recategorizar_outros(c)
+    if versao < 6:  # 6: tira CPF, CNPJ, agência e conta de terceiros do que já estava guardado
+        _limpar_descricoes(c)
+
+
+def _limpar_descricoes(c: sqlite3.Connection) -> None:
+    """Versão 6: reescreve as descrições antigas já sem documentos de terceiros. Antes de mexer, guarda uma cópia do banco
+    ao lado dele (mare-backup-antes-v6.db), porque a limpeza não tem volta. A cópia tem os dados crus: apague-a depois de
+    conferir que está tudo certo. A chave das regras não muda, então as categorias aprendidas continuam valendo."""
+    mudar = [(nova, r["id"]) for r in c.execute("SELECT id, descricao FROM transacoes")
+             if (nova := _guardada(r["descricao"])) != r["descricao"]]
+    if not mudar:
+        return
+    destino = Path(config.DB_PATH).with_name("mare-backup-antes-v6.db")
+    if not destino.exists():  # numa segunda tentativa não sobrescreve a cópia original
+        c.commit()
+        copia = sqlite3.connect(destino)
+        try:
+            c.backup(copia)
+        finally:
+            copia.close()
+    c.executemany("UPDATE transacoes SET descricao=? WHERE id=?", mudar)
 
 
 def _recategorizar_outros(c: sqlite3.Connection) -> None:
@@ -323,11 +344,18 @@ def regras_usuario(uid: int) -> dict[str, str]:
         return {r["chave"]: r["categoria"] for r in c.execute("SELECT chave, categoria FROM regras WHERE usuario_id=?", (uid,))}
 
 
+def _guardada(descricao: str) -> str:
+    """A descrição como fica no banco: sem CPF, CNPJ, agência nem conta de terceiros. É também a forma usada para
+    comparar linhas ao reimportar, então vale dos dois lados (arquivo novo e linhas já guardadas, cruas ou limpas)."""
+    return sanitizar(descricao) or "Lançamento"
+
+
 def _inserir_txs(c: sqlite3.Connection, fid: int, txs: list) -> None:
+    # A categoria e a chave das regras vêm da descrição crua (já calculadas); só o texto guardado é limpo.
     c.executemany(
         """INSERT INTO transacoes (fatura_id, data, descricao, chave, valor_cents, bruto_cents, tipo,
            parcela_atual, parcela_total, categoria, fitid) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-        [(fid, t.data.isoformat(), t.descricao, chave(t.descricao), t.valor_cents, t.bruto_cents, t.tipo,
+        [(fid, t.data.isoformat(), _guardada(t.descricao), chave(t.descricao), t.valor_cents, t.bruto_cents, t.tipo,
           t.parcela_atual, t.parcela_total, t.categoria, t.fitid) for t in txs])
 
 
@@ -335,14 +363,14 @@ def _parecida(c: sqlite3.Connection, f: Fatura, uid: int) -> tuple[int, Counter]
     """Procura uma fatura já importada que seja a mesma, só que exportada em outro dia (com mais ou menos lançamentos).
     Critério: mesmo tipo (cartão/conta), mesmo emissor (ou algum sem nome), perto no calendário e pelo menos 80% dos
     lançamentos do menor arquivo iguais em data, descrição e valor."""
-    novas = Counter((t.data.isoformat(), t.descricao, t.bruto_cents) for t in f.txs)
+    novas = Counter((t.data.isoformat(), _guardada(t.descricao), t.bruto_cents) for t in f.txs)
     melhor: tuple[int, int] | None = None
     for r in c.execute(
             """SELECT id, emissor FROM faturas WHERE usuario_id=? AND conta=? AND ABS(julianday(referencia) - julianday(?)) <= 62""",
             (uid, int(f.conta), f.referencia.isoformat())).fetchall():
         if r["emissor"] and f.emissor and r["emissor"].casefold() != f.emissor.casefold():
             continue
-        antigas = Counter((t["data"], t["descricao"], t["bruto_cents"]) for t in c.execute(
+        antigas = Counter((t["data"], _guardada(t["descricao"]), t["bruto_cents"]) for t in c.execute(
             "SELECT data, descricao, bruto_cents FROM transacoes WHERE fatura_id=?", (r["id"],)))
         menor = min(sum(antigas.values()), sum(novas.values()))
         casadas = sum((novas & antigas).values())
@@ -350,7 +378,7 @@ def _parecida(c: sqlite3.Connection, f: Fatura, uid: int) -> tuple[int, Counter]
             melhor = (r["id"], casadas)
     if not melhor:
         return None
-    antigas = Counter((t["data"], t["descricao"], t["bruto_cents"]) for t in c.execute(
+    antigas = Counter((t["data"], _guardada(t["descricao"]), t["bruto_cents"]) for t in c.execute(
         "SELECT data, descricao, bruto_cents FROM transacoes WHERE fatura_id=?", (melhor[0],)))
     return melhor[0], novas - antigas  # o que o arquivo novo tem e a fatura guardada ainda não
 
@@ -369,7 +397,7 @@ def salvar(f: Fatura, uid: int) -> tuple[int, int | None]:
                 raise Duplicada(fid)  # o arquivo novo é igual ou mais curto do que já está guardado
             novos = []
             for t in f.txs:
-                k = (t.data.isoformat(), t.descricao, t.bruto_cents)
+                k = (t.data.isoformat(), _guardada(t.descricao), t.bruto_cents)
                 if faltam.get(k, 0) > 0:
                     faltam[k] -= 1
                     novos.append(t)
@@ -536,7 +564,9 @@ def restaurar(uid: int, itens: list[dict], chave_regra: str, categoria_regra: st
                    UNION SELECT 1 FROM regras WHERE chave=? AND usuario_id=? LIMIT 1""",
                 (chave_regra, uid, chave_regra, uid)).fetchone():
             return False
-        c.executemany("UPDATE transacoes SET categoria=? WHERE id=? AND fatura_id IN (SELECT id FROM faturas WHERE usuario_id=?)",
+        # Só compra e estorno têm categoria editável: o id de um pagamento ou de uma entrada não pode ser recategorizado aqui.
+        c.executemany("UPDATE transacoes SET categoria=? WHERE id=? AND tipo IN ('compra','estorno') "
+                      "AND fatura_id IN (SELECT id FROM faturas WHERE usuario_id=?)",
                       [(i["categoria"], i["id"], uid) for i in itens])
         c.execute("INSERT INTO regras (usuario_id, chave, categoria) VALUES (?,?,?) "
                   "ON CONFLICT(usuario_id, chave) DO UPDATE SET categoria=excluded.categoria", (uid, chave_regra, categoria_regra))

@@ -97,6 +97,10 @@ def test_migracao_recategoriza_so_o_que_estava_em_outros(tmp_path, monkeypatch):
     with sqlite3.connect(config.DB_PATH) as s:
         s.execute("UPDATE transacoes SET categoria='Outros' WHERE tipo='compra'")
         s.execute("UPDATE transacoes SET categoria='Lazer' WHERE id=?", (ids["Grill Haus"],))  # escolha da pessoa
+        # Um banco dessa época guarda a descrição crua (hoje a importação já grava limpa); a migração 4 precisa do CPF
+        # para reconhecer o Pix para pessoa física, e roda antes da 6, que limpa.
+        s.execute("UPDATE transacoes SET descricao=? WHERE id=?", (PIX_PESSOA, ids["Dhaniel Lyvio do Nascimento Morais"]))
+        s.execute("UPDATE transacoes SET descricao=? WHERE id=?", (PIX_LOJA, ids["Grill Haus"]))
         s.execute("PRAGMA user_version=3")
     db._prontos.clear()
     novo = {t["titulo"]: t["categoria"] for t in c.get(f"/api/faturas/{fat['id']}").json()["transacoes"]}
