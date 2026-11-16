@@ -13,6 +13,7 @@ from pathlib import Path
 from . import config
 from .categorize import categorizar, chave
 from .descricao import apresentar, sanitizar
+from .divergencia import Linha, explicar
 from .models import Fatura, RawTx
 from .pipeline import _classificar, escolher_convencao, hash_conteudo, soma_cents, soma_saidas_cents, tipo_conta
 from .seguranca import digest_token
@@ -483,6 +484,10 @@ def obter(fid: int, uid: int) -> dict | None:
         d["transacoes"] = [_tx_publica(t) for t in c.execute(
             """SELECT id, data, descricao, valor_cents, tipo, parcela_atual, parcela_total, categoria
                FROM transacoes WHERE fatura_id=? ORDER BY data, id""", (fid,))]
+        # Só uma fatura divergente tem o que explicar; usa o título já limpo (sem CPF, agência nem conta).
+        d["reconciliacao"]["explicacoes"] = explicar(
+            [Linha(t["data"], t["titulo"], t["valor_cents"], t["tipo"]) for t in d["transacoes"]],
+            d["total_cents"], d["soma_cents"]) if d["status"] == "divergente" else []
         return d
 
 

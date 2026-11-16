@@ -1,10 +1,10 @@
 // Service worker mínimo: guarda o "casco" do app para abrir offline. Dados da API nunca são guardados.
-const VERSAO = 'v9';
+const VERSAO = 'v10';
 const CASCO = `mare-casco-${VERSAO}`;
 const ARQUIVOS = [
   '/', '/index.html', '/manifest.webmanifest',
-  '/css/tokens.css?v=9', '/css/app.css?v=9',
-  '/dist/main.js?v=9',
+  '/css/tokens.css?v=10', '/css/app.css?v=10',
+  '/dist/main.js?v=10',
   '/fonts/lexend-exa-latin-500-normal.woff2', '/fonts/manrope-latin-wght-normal.woff2', '/fonts/jetbrains-mono-latin-wght-normal.woff2',
   '/icons/icon-192.png', '/logo/favicon.svg',
 ];

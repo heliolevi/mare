@@ -85,9 +85,16 @@ function ledger(fat: Fatura, ctx: Ctx, revelar: boolean): HTMLElement {
     const dif = r.diff_cents ?? 0;
     const mais = dif > 0;
     sit.classList.add('situacao-alerta');
+    const causas = r.explicacoes ?? [];
     sit.append(ico('warning'), h('div', {},
       h('strong', {}, `Divergência de ${brl(Math.abs(dif))}`),
-      h('p', {}, `As transações somam ${brl(Math.abs(dif))} a ${mais ? 'mais' : 'menos'} que o total da fatura. Revise os lançamentos ou confira o total informado.`)));
+      h('p', {}, `As transações somam ${brl(Math.abs(dif))} a ${mais ? 'mais' : 'menos'} que o total da fatura.${causas.length ? '' : ' Revise os lançamentos ou confira o total informado.'}`),
+      causas.length
+        ? h('div', { class: 'explica' },
+          h('p', { class: 'explica-tit' }, causas.length === 1 ? 'Pode ser isto:' : 'Pode ser um destes:'),
+          h('ul', {}, causas.map((c) => h('li', { 'data-causa': c.codigo }, c.texto))),
+          h('p', { class: 'explica-fim' }, 'Se o total que você informou estiver certo, confira esses pontos no app do banco. Se estiver errado, corrija abaixo.'))
+        : null));
     el.append(sit, h('details', {}, h('summary', {}, 'Corrigir o total'), formTotal(fat, ctx)));
   } else {
     sit.append(ico('info'), h('div', {}, h('strong', {}, 'Falta o total para conferir'),

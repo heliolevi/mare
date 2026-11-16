@@ -18,6 +18,9 @@ export interface Transacao {
   categoria: string;
 }
 
+/** Causa provável de uma divergência, escrita para a pessoa conferir no app do banco (ver app/divergencia.py). */
+export interface Explicacao { codigo: string; texto: string }
+
 export interface Reconciliacao {
   status: StatusFatura;
   compras_cents: number;
@@ -30,6 +33,8 @@ export interface Reconciliacao {
   soma_cents: number;
   total_cents: number | null;
   diff_cents: number | null;
+  /** Só vem preenchida quando a fatura está divergente. */
+  explicacoes: Explicacao[];
 }
 
 export interface FaturaResumo {

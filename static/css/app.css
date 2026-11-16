@@ -167,6 +167,12 @@ main {
 .situacao-alerta .ico { color: var(--band-warn); }
 .situacao strong { display: block; font-weight: 650; }
 .situacao p { color: var(--band-ink-2); font-size: var(--fs-sm); }
+/* Causas prováveis de uma divergência (app/divergencia.py) */
+.situacao .explica { display: grid; gap: var(--s-2); margin-top: var(--s-3); }
+.situacao .explica p { margin: 0; }
+.situacao .explica-tit { color: var(--band-ink); font-weight: 600; }
+.situacao .explica ul { display: grid; gap: var(--s-2); margin: 0; padding-left: 1.1rem; list-style: disc; color: var(--band-ink-2); font-size: var(--fs-sm); line-height: 1.5; }
+.situacao .explica li::marker { color: var(--band-warn); }
 .ledger-form { display: grid; gap: var(--s-3); }
 .ledger-form label { font-weight: 600; font-size: var(--fs-sm); }
 .ledger-form .linha { display: flex; gap: var(--s-2); }
