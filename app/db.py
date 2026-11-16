@@ -12,6 +12,7 @@ from pathlib import Path
 
 from . import config
 from .categorize import categorizar, chave
+from .descricao import apresentar, sanitizar
 from .models import Fatura, RawTx
 from .pipeline import _classificar, escolher_convencao, hash_conteudo, soma_cents, soma_saidas_cents, tipo_conta
 from .seguranca import digest_token
@@ -84,7 +85,7 @@ class EmailEmUso(Exception):
     pass
 
 
-_VERSAO_SCHEMA = 3
+_VERSAO_SCHEMA = 5
 _prontos: set[str] = set()
 _trava = threading.Lock()
 
@@ -125,6 +126,23 @@ def _migrar(c: sqlite3.Connection, versao: int) -> None:
                   "PRIMARY KEY (usuario_id, chave))")
         c.execute("INSERT INTO regras SELECT 0, chave, categoria FROM regras_antiga")
         c.execute("DROP TABLE regras_antiga")
+    if versao < 5:  # 4: categorização nova; 5: mais palavras-chave (oficina, salgados, jogos). Idempotente.
+        _recategorizar_outros(c)
+
+
+def _recategorizar_outros(c: sqlite3.Connection) -> None:
+    """Versão 4: categorização nova (Transferências, comida grudada no nome, palavras-chave só no nome do recebedor).
+    Só mexe no que estava em "Outros": nada que a pessoa escolheu, nem categoria vinda do arquivo, é sobrescrito."""
+    regras_por_usuario: dict[int, dict[str, str]] = {}
+    for r in c.execute("SELECT usuario_id, chave, categoria FROM regras"):
+        regras_por_usuario.setdefault(r["usuario_id"], {})[r["chave"]] = r["categoria"]
+    linhas = c.execute(
+        """SELECT t.id, t.descricao, t.tipo, f.usuario_id FROM transacoes t JOIN faturas f ON f.id = t.fatura_id
+           WHERE t.categoria = 'Outros' AND t.tipo IN ('compra', 'estorno')""").fetchall()
+    for t in linhas:
+        nova = categorizar(t["descricao"], t["tipo"], None, regras_por_usuario.get(t["usuario_id"], {}))
+        if nova != "Outros":
+            c.execute("UPDATE transacoes SET categoria=? WHERE id=?", (nova, t["id"]))
 
 
 def _corrigir_contas_antigas(c: sqlite3.Connection) -> None:
@@ -382,6 +400,17 @@ def salvar(f: Fatura, uid: int) -> tuple[int, int | None]:
         return fid, None
 
 
+def _tx_publica(r: sqlite3.Row | dict) -> dict:
+    """O que sai da API sobre um lançamento. A descrição crua (com CPF/CNPJ, agência e conta de terceiros) fica só no banco."""
+    d = dict(r)
+    bruta = d.get("descricao") or ""
+    ap = apresentar(bruta)
+    d["descricao"] = sanitizar(bruta) or ap.titulo
+    d["titulo"] = ap.titulo
+    d["detalhe"] = ap.detalhe
+    return d
+
+
 def _iso(d: date | None) -> str | None:
     return d.isoformat() if d else None
 
@@ -423,7 +452,7 @@ def obter(fid: int, uid: int) -> dict | None:
             return None
         d = _cab(r)
         d["reconciliacao"] = _reconciliacao(c, fid, d)
-        d["transacoes"] = [dict(t) for t in c.execute(
+        d["transacoes"] = [_tx_publica(t) for t in c.execute(
             """SELECT id, data, descricao, valor_cents, tipo, parcela_atual, parcela_total, categoria
                FROM transacoes WHERE fatura_id=? ORDER BY data, id""", (fid,))]
         return d
@@ -536,7 +565,7 @@ def resumo(fid: int | None, uid: int) -> dict | None:
             f"""SELECT categoria AS nome, {GASTO} AS total_cents, COUNT(*) AS qtd FROM transacoes
                 WHERE fatura_id=? AND tipo IN ('compra','encargo','estorno') GROUP BY categoria
                 HAVING {GASTO} > 0 ORDER BY total_cents DESC""", (fid,))]
-        maiores = [dict(r) for r in c.execute(
+        maiores = [_tx_publica(r) for r in c.execute(
             """SELECT id, data, descricao, valor_cents, categoria, parcela_atual, parcela_total FROM transacoes
                WHERE fatura_id=? AND tipo='compra' ORDER BY valor_cents DESC LIMIT 5""", (fid,))]
         ant = c.execute(
@@ -570,7 +599,8 @@ def parcelas_futuras(uid: int) -> dict:
                     chave_mes = f"{mes_idx // 12:04d}-{mes_idx % 12 + 1:02d}"
                     m = meses.setdefault(chave_mes, {"mes": chave_mes, "total_cents": 0, "itens": []})
                     m["total_cents"] += t["valor_cents"]
-                    m["itens"].append({"descricao": t["descricao"], "valor_cents": t["valor_cents"],
+                    pub = _tx_publica({"descricao": t["descricao"]})
+                    m["itens"].append({"descricao": pub["descricao"], "titulo": pub["titulo"], "valor_cents": t["valor_cents"],
                                        "parcela": f"{t['parcela_atual'] + k}/{t['parcela_total']}",
                                        "emissor": f["emissor"]})
         lista = [meses[k] for k in sorted(meses)]
