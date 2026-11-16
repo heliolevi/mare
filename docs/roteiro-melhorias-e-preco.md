@@ -18,13 +18,13 @@ As fases abaixo seguem essa ordem. Cada uma cabe em 1 a 3 semanas de trabalho de
 
 Coisas pequenas que evitam dor de cabeça depois.
 
-- [ ] **Branch nova** (por exemplo `fase-0`). O trabalho pendente está hoje em `docs/como-rodar-e-env-example`, que não é a branch certa para ele.
-- [ ] Revisar e commitar o que está pendente, **separado por assunto**: os 15 arquivos modificados e os 3 novos (`app/descricao.py` e `tests/test_apresentacao.py` num commit próprio, porque são a limpeza de CPF/CNPJ na saída da API).
-- [ ] Limpar os 4 `.fuse_hidden*` de `data/` (sobras de um processo que segurava o banco aberto).
-- [ ] As três correções de segurança:
-  - **Limitador** (`app/seguranca.py:125`, `self._eventos.clear()`): ao passar de 5.000 chaves, ele zera também o contador do e-mail que alguém está tentando adivinhar. Trocar por remover só as chaves mais antigas.
-  - **CPF de terceiros cru no banco**: o `descricao.py` já limpa o que sai pela API, mas a descrição original continua gravada. Limpar antes de gravar.
-  - **"Desfazer" (`restaurar`)**: aceita qualquer categoria da lista completa, inclusive as fixas ("Pagamento de fatura", "Entradas"...). Aceitar só as editáveis e só lançamentos de compra ou estorno.
+- [x] **Branch nova** (por exemplo `fase-0`). O trabalho pendente está hoje em `docs/como-rodar-e-env-example`, que não é a branch certa para ele.
+- [x] Revisar e commitar o que está pendente, **separado por assunto**: os 15 arquivos modificados e os 3 novos (`app/descricao.py` e `tests/test_apresentacao.py` num commit próprio, porque são a limpeza de CPF/CNPJ na saída da API).
+- [ ] Limpar os 4 `.fuse_hidden*` de `data/` (sobras de um processo que segurava o banco aberto). **Pendente, é com você:** o assistente não tem permissão para apagar arquivos em `data/`. São 4 arquivos de 32 KB de 09/11, que não são bancos. Também dá para apagar `data/mare-backup-antes-v4.db*` e `data/mare-backup-antes-v6.db` quando você conferir que está tudo certo (eles guardam os dados crus, com CPF de terceiros).
+- [x] As três correções de segurança (testes em `tests/test_fase0.py`):
+  - **Limitador** (`app/seguranca.py:125`, `self._eventos.clear()`): ao passar de 5.000 chaves, ele zera também o contador do e-mail que alguém está tentando adivinhar. Agora sai primeiro o que expirou, depois quem não chegou ao limite e só por último quem já está bloqueado.
+  - **CPF de terceiros cru no banco**: o `descricao.py` já limpa o que sai pela API, mas a descrição original continua gravada. Agora grava limpo. A comparação ao reimportar limpa os dois lados, senão duplicaria, e a migração 6 limpou o que já estava guardado (com cópia em `data/mare-backup-antes-v6.db`). Limite conhecido: depois de limpo, o banco já não sabe se o Pix era para pessoa física, então qualquer recategorização futura feita só com o texto guardado perde essa pista.
+  - **"Desfazer" (`restaurar`)**: aceita qualquer categoria da lista completa, inclusive as fixas ("Pagamento de fatura", "Entradas"...). Agora aceita só as editáveis, e só atinge lançamentos de compra ou estorno.
 - [ ] **Testes por banco (`tests/bancos/`)**: depende de você trazer faturas reais anonimizadas. Comece pelos bancos que você mesmo usa ou consegue com alguém próximo. O formato do Nubank ainda não foi confirmado, então ele é o primeiro da fila.
 
 **Pronto quando:** os testes passam e cada banco que você conseguiu testar sai "Conferido".
