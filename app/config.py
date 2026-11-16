@@ -50,3 +50,10 @@ MAX_LINHAS = int(os.getenv("MAX_LINHAS", "3000"))
 # Nomes de host aceitos além de localhost e endereços IP (separados por vírgula). Bloqueia ataques de DNS rebinding:
 # um site externo que aponta o próprio domínio para 127.0.0.1 e tenta falar com o app como se fosse da mesma origem.
 ALLOWED_HOSTS = {h.strip().lower() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()}
+
+# Em produção atrás de proxy (Caddy, Nginx, Render, Railway...), rode o uvicorn com --proxy-headers
+# --forwarded-allow-ips=<ip do proxy> para o app enxergar o IP real e o https. Se o HTTPS termina num lugar que não repassa
+# esses cabeçalhos, COOKIE_SEGURO=1 força o cookie de sessão a só viajar por HTTPS.
+COOKIE_SEGURO = _bool("COOKIE_SEGURO")
+# Strict-Transport-Security (só é enviado em respostas HTTPS). 180 dias; 0 desliga.
+HSTS_SEGUNDOS = int(os.getenv("HSTS_SEGUNDOS", str(180 * 86400)))
