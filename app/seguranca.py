@@ -97,34 +97,57 @@ def digest_token(token: str) -> str:
 
 
 class Limite:
-    """Janela deslizante em memória: no máximo `maximo` eventos por `janela` segundos para cada chave."""
+    """Janela deslizante em memória: no máximo `maximo` eventos por `janela` segundos para cada chave.
 
-    def __init__(self, maximo: int, janela: float):
-        self.maximo, self.janela = maximo, janela
+    A memória é limitada a `max_chaves`. Quando enche, sai primeiro o que já expirou, depois quem ainda não chegou ao
+    limite (do mais antigo ao mais novo) e só por último quem já está bloqueado. Assim, quem manda milhares de chaves
+    diferentes para encher a tabela não consegue apagar o contador de uma chave que está sendo bloqueada."""
+
+    def __init__(self, maximo: int, janela: float, max_chaves: int = 5000):
+        self.maximo, self.janela, self.max_chaves = maximo, janela, max_chaves
         self._eventos: dict[str, deque[float]] = {}
         self._trava = threading.Lock()
 
-    def _podar(self, chave: str, agora: float) -> deque[float]:
-        q = self._eventos.setdefault(chave, deque())
+    def _fila(self, chave: str, agora: float) -> deque[float] | None:
+        """Fila da chave já sem eventos vencidos, ou None. Só consulta: nunca cria entrada."""
+        q = self._eventos.get(chave)
+        if q is None:
+            return None
         while q and agora - q[0] > self.janela:
             q.popleft()
         if not q:
-            self._eventos.pop(chave, None)
-            q = self._eventos.setdefault(chave, deque())
+            del self._eventos[chave]
+            return None
         return q
 
     def espera(self, chave: str) -> int:
         """Segundos até poder tentar de novo; 0 se já pode."""
         with self._trava:
             agora = time.monotonic()
-            q = self._podar(chave, agora)
-            return 0 if len(q) < self.maximo else max(1, int(self.janela - (agora - q[0])) + 1)
+            q = self._fila(chave, agora)
+            return 0 if q is None or len(q) < self.maximo else max(1, int(self.janela - (agora - q[0])) + 1)
+
+    def _abrir_espaco(self, agora: float) -> None:
+        alvo = int(self.max_chaves * 0.9)  # abre folga de uma vez, para não repetir a varredura a cada registro
+        for passo in range(3):
+            for k in list(self._eventos):  # a ordem do dicionário é a de chegada: do mais antigo ao mais novo
+                if len(self._eventos) <= alvo:
+                    return
+                q = self._eventos[k]
+                while q and agora - q[0] > self.janela:
+                    q.popleft()
+                if (passo == 0 and not q) or (passo == 1 and len(q) < self.maximo) or passo == 2:
+                    del self._eventos[k]
 
     def registrar(self, chave: str) -> None:
         with self._trava:
-            if len(self._eventos) > 5000:  # memória limitada mesmo sob ataque com chaves diferentes
-                self._eventos.clear()
-            self._podar(chave, time.monotonic()).append(time.monotonic())
+            agora = time.monotonic()
+            q = self._fila(chave, agora)
+            if q is None:
+                if len(self._eventos) >= self.max_chaves:
+                    self._abrir_espaco(agora)
+                q = self._eventos[chave] = deque()
+            q.append(agora)
 
     def limpar(self) -> None:
         with self._trava:

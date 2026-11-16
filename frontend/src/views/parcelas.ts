@@ -36,7 +36,7 @@ export default async function parcelas(ctx: Ctx): Promise<HTMLElement> {
       h('h2', {}, mesLongo(m.mes)),
       h('p', { class: 'muted' }, `${brl(m.total_cents)} em ${plural(m.itens.length, 'parcela', 'parcelas')}`),
       h('ul', { class: 'maiores' }, [...m.itens].sort((a, b) => b.valor_cents - a.valor_cents).slice(0, LIMITE_ITENS).map((i) => h('li', { class: 'linha-item' },
-        h('span', { class: 'desc' }, i.descricao),
+        h('span', { class: 'desc' }, i.titulo || i.descricao),
         h('span', { class: 'valor num' }, brl(i.valor_cents)),
         h('span', { class: 'meta' }, h('span', { class: 'etiqueta' }, `Parcela ${i.parcela}`), i.emissor ? h('span', {}, i.emissor) : null)))),
       ...(m.itens.length > LIMITE_ITENS ? [h('p', { class: 'dica' }, `Mostrando ${LIMITE_ITENS} de ${m.itens.length} parcelas, as maiores primeiro.`)] : []));

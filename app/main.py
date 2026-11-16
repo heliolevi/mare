@@ -19,7 +19,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, correio, db, seguranca
-from .categorize import CATEGORIAS, CATEGORIAS_EDITAVEIS
+from .categorize import CATEGORIAS_EDITAVEIS
 from .norm import limpar_texto, parse_date, parse_money_cents
 from .pipeline import PipelineError, importar
 
@@ -100,11 +100,16 @@ def usuario_logado(request: Request) -> dict:
 Usuario = Annotated[dict, Depends(usuario_logado)]
 
 
+def _seguro(request: Request) -> bool:
+    """Cookie só por HTTPS quando a conexão é HTTPS (ou quando COOKIE_SEGURO=1 manda, atrás de proxy)."""
+    return config.COOKIE_SEGURO or request.url.scheme == "https"
+
+
 def _abrir_sessao(request: Request, resposta: Response, uid: int) -> None:
     token = seguranca.novo_token()  # sempre um token novo a cada login (evita fixação de sessão)
     db.criar_sessao(uid, token, config.SESSAO_DIAS)
     resposta.set_cookie(COOKIE, token, max_age=config.SESSAO_DIAS * 86400, httponly=True, samesite="strict",
-                        secure=request.url.scheme == "https", path="/")
+                        secure=_seguro(request), path="/")
 
 
 def _publico(u: dict) -> dict:
@@ -169,7 +174,7 @@ def _espere_reenvio(segundos: int) -> HTTPException:
 
 def _guardar_cookie_cadastro(request: Request, resposta: Response, token: str) -> None:
     resposta.set_cookie(COOKIE_CAD, token, max_age=config.CODIGO_MINUTOS * 60, httponly=True, samesite="strict",
-                        secure=request.url.scheme == "https", path=CAMINHO_CAD)
+                        secure=_seguro(request), path=CAMINHO_CAD)
 
 
 def _falha_no_envio() -> HTTPException:
@@ -359,6 +364,12 @@ class Guarda:
                     h[k] = v
                 if api:
                     h["Cache-Control"] = "no-store"
+                elif caminho == "/" or caminho.endswith((".html", ".css", ".js", ".webmanifest")):
+                    # O casco do app revalida sempre (ETag): sem isso o navegador segura CSS/JS antigos depois de uma
+                    # atualização e a tela fica meio nova, meio velha. Fontes e ícones continuam com cache normal.
+                    h["Cache-Control"] = "no-cache"
+                if scope.get("scheme") == "https" and config.HSTS_SEGUNDOS > 0:
+                    h["Strict-Transport-Security"] = f"max-age={config.HSTS_SEGUNDOS}; includeSubDomains"
             await send(msg)
 
         async def negar(status, codigo, mensagem):
@@ -528,7 +539,8 @@ class Restaurar(BaseModel):
 
 @app.post("/api/transacoes/restaurar", status_code=204)
 def restaurar(corpo: Restaurar, u: Usuario):
-    if corpo.categoria_regra not in CATEGORIAS or any(i.categoria not in CATEGORIAS for i in corpo.itens):
+    # Compra e estorno nunca recebem categoria fixa ("Pagamento de fatura", "Entradas"...), então desfazer também não aceita.
+    if corpo.categoria_regra not in CATEGORIAS_EDITAVEIS or any(i.categoria not in CATEGORIAS_EDITAVEIS for i in corpo.itens):
         raise erro(422, "categoria_invalida", "Categoria desconhecida.")
     if not db.restaurar(u["id"], [{"id": i.id, "categoria": i.categoria} for i in corpo.itens], corpo.chave, corpo.categoria_regra):
         raise erro(422, "chave_desconhecida", "Não encontrei esse estabelecimento para desfazer a troca.")

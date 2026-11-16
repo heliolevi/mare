@@ -12,6 +12,7 @@ from pathlib import Path
 
 from . import config
 from .categorize import categorizar, chave
+from .descricao import apresentar, sanitizar
 from .models import Fatura, RawTx
 from .pipeline import _classificar, escolher_convencao, hash_conteudo, soma_cents, soma_saidas_cents, tipo_conta
 from .seguranca import digest_token
@@ -84,7 +85,7 @@ class EmailEmUso(Exception):
     pass
 
 
-_VERSAO_SCHEMA = 3
+_VERSAO_SCHEMA = 6
 _prontos: set[str] = set()
 _trava = threading.Lock()
 
@@ -125,6 +126,44 @@ def _migrar(c: sqlite3.Connection, versao: int) -> None:
                   "PRIMARY KEY (usuario_id, chave))")
         c.execute("INSERT INTO regras SELECT 0, chave, categoria FROM regras_antiga")
         c.execute("DROP TABLE regras_antiga")
+    if versao < 5:  # 4: categorização nova; 5: mais palavras-chave (oficina, salgados, jogos). Idempotente.
+        _recategorizar_outros(c)
+    if versao < 6:  # 6: tira CPF, CNPJ, agência e conta de terceiros do que já estava guardado
+        _limpar_descricoes(c)
+
+
+def _limpar_descricoes(c: sqlite3.Connection) -> None:
+    """Versão 6: reescreve as descrições antigas já sem documentos de terceiros. Antes de mexer, guarda uma cópia do banco
+    ao lado dele (mare-backup-antes-v6.db), porque a limpeza não tem volta. A cópia tem os dados crus: apague-a depois de
+    conferir que está tudo certo. A chave das regras não muda, então as categorias aprendidas continuam valendo."""
+    mudar = [(nova, r["id"]) for r in c.execute("SELECT id, descricao FROM transacoes")
+             if (nova := _guardada(r["descricao"])) != r["descricao"]]
+    if not mudar:
+        return
+    destino = Path(config.DB_PATH).with_name("mare-backup-antes-v6.db")
+    if not destino.exists():  # numa segunda tentativa não sobrescreve a cópia original
+        c.commit()
+        copia = sqlite3.connect(destino)
+        try:
+            c.backup(copia)
+        finally:
+            copia.close()
+    c.executemany("UPDATE transacoes SET descricao=? WHERE id=?", mudar)
+
+
+def _recategorizar_outros(c: sqlite3.Connection) -> None:
+    """Versão 4: categorização nova (Transferências, comida grudada no nome, palavras-chave só no nome do recebedor).
+    Só mexe no que estava em "Outros": nada que a pessoa escolheu, nem categoria vinda do arquivo, é sobrescrito."""
+    regras_por_usuario: dict[int, dict[str, str]] = {}
+    for r in c.execute("SELECT usuario_id, chave, categoria FROM regras"):
+        regras_por_usuario.setdefault(r["usuario_id"], {})[r["chave"]] = r["categoria"]
+    linhas = c.execute(
+        """SELECT t.id, t.descricao, t.tipo, f.usuario_id FROM transacoes t JOIN faturas f ON f.id = t.fatura_id
+           WHERE t.categoria = 'Outros' AND t.tipo IN ('compra', 'estorno')""").fetchall()
+    for t in linhas:
+        nova = categorizar(t["descricao"], t["tipo"], None, regras_por_usuario.get(t["usuario_id"], {}))
+        if nova != "Outros":
+            c.execute("UPDATE transacoes SET categoria=? WHERE id=?", (nova, t["id"]))
 
 
 def _corrigir_contas_antigas(c: sqlite3.Connection) -> None:
@@ -305,11 +344,18 @@ def regras_usuario(uid: int) -> dict[str, str]:
         return {r["chave"]: r["categoria"] for r in c.execute("SELECT chave, categoria FROM regras WHERE usuario_id=?", (uid,))}
 
 
+def _guardada(descricao: str) -> str:
+    """A descrição como fica no banco: sem CPF, CNPJ, agência nem conta de terceiros. É também a forma usada para
+    comparar linhas ao reimportar, então vale dos dois lados (arquivo novo e linhas já guardadas, cruas ou limpas)."""
+    return sanitizar(descricao) or "Lançamento"
+
+
 def _inserir_txs(c: sqlite3.Connection, fid: int, txs: list) -> None:
+    # A categoria e a chave das regras vêm da descrição crua (já calculadas); só o texto guardado é limpo.
     c.executemany(
         """INSERT INTO transacoes (fatura_id, data, descricao, chave, valor_cents, bruto_cents, tipo,
            parcela_atual, parcela_total, categoria, fitid) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-        [(fid, t.data.isoformat(), t.descricao, chave(t.descricao), t.valor_cents, t.bruto_cents, t.tipo,
+        [(fid, t.data.isoformat(), _guardada(t.descricao), chave(t.descricao), t.valor_cents, t.bruto_cents, t.tipo,
           t.parcela_atual, t.parcela_total, t.categoria, t.fitid) for t in txs])
 
 
@@ -317,14 +363,14 @@ def _parecida(c: sqlite3.Connection, f: Fatura, uid: int) -> tuple[int, Counter]
     """Procura uma fatura já importada que seja a mesma, só que exportada em outro dia (com mais ou menos lançamentos).
     Critério: mesmo tipo (cartão/conta), mesmo emissor (ou algum sem nome), perto no calendário e pelo menos 80% dos
     lançamentos do menor arquivo iguais em data, descrição e valor."""
-    novas = Counter((t.data.isoformat(), t.descricao, t.bruto_cents) for t in f.txs)
+    novas = Counter((t.data.isoformat(), _guardada(t.descricao), t.bruto_cents) for t in f.txs)
     melhor: tuple[int, int] | None = None
     for r in c.execute(
             """SELECT id, emissor FROM faturas WHERE usuario_id=? AND conta=? AND ABS(julianday(referencia) - julianday(?)) <= 62""",
             (uid, int(f.conta), f.referencia.isoformat())).fetchall():
         if r["emissor"] and f.emissor and r["emissor"].casefold() != f.emissor.casefold():
             continue
-        antigas = Counter((t["data"], t["descricao"], t["bruto_cents"]) for t in c.execute(
+        antigas = Counter((t["data"], _guardada(t["descricao"]), t["bruto_cents"]) for t in c.execute(
             "SELECT data, descricao, bruto_cents FROM transacoes WHERE fatura_id=?", (r["id"],)))
         menor = min(sum(antigas.values()), sum(novas.values()))
         casadas = sum((novas & antigas).values())
@@ -332,7 +378,7 @@ def _parecida(c: sqlite3.Connection, f: Fatura, uid: int) -> tuple[int, Counter]
             melhor = (r["id"], casadas)
     if not melhor:
         return None
-    antigas = Counter((t["data"], t["descricao"], t["bruto_cents"]) for t in c.execute(
+    antigas = Counter((t["data"], _guardada(t["descricao"]), t["bruto_cents"]) for t in c.execute(
         "SELECT data, descricao, bruto_cents FROM transacoes WHERE fatura_id=?", (melhor[0],)))
     return melhor[0], novas - antigas  # o que o arquivo novo tem e a fatura guardada ainda não
 
@@ -351,7 +397,7 @@ def salvar(f: Fatura, uid: int) -> tuple[int, int | None]:
                 raise Duplicada(fid)  # o arquivo novo é igual ou mais curto do que já está guardado
             novos = []
             for t in f.txs:
-                k = (t.data.isoformat(), t.descricao, t.bruto_cents)
+                k = (t.data.isoformat(), _guardada(t.descricao), t.bruto_cents)
                 if faltam.get(k, 0) > 0:
                     faltam[k] -= 1
                     novos.append(t)
@@ -380,6 +426,17 @@ def salvar(f: Fatura, uid: int) -> tuple[int, int | None]:
         fid = cur.lastrowid
         _inserir_txs(c, fid, f.txs)
         return fid, None
+
+
+def _tx_publica(r: sqlite3.Row | dict) -> dict:
+    """O que sai da API sobre um lançamento. A descrição crua (com CPF/CNPJ, agência e conta de terceiros) fica só no banco."""
+    d = dict(r)
+    bruta = d.get("descricao") or ""
+    ap = apresentar(bruta)
+    d["descricao"] = sanitizar(bruta) or ap.titulo
+    d["titulo"] = ap.titulo
+    d["detalhe"] = ap.detalhe
+    return d
 
 
 def _iso(d: date | None) -> str | None:
@@ -423,7 +480,7 @@ def obter(fid: int, uid: int) -> dict | None:
             return None
         d = _cab(r)
         d["reconciliacao"] = _reconciliacao(c, fid, d)
-        d["transacoes"] = [dict(t) for t in c.execute(
+        d["transacoes"] = [_tx_publica(t) for t in c.execute(
             """SELECT id, data, descricao, valor_cents, tipo, parcela_atual, parcela_total, categoria
                FROM transacoes WHERE fatura_id=? ORDER BY data, id""", (fid,))]
         return d
@@ -507,7 +564,9 @@ def restaurar(uid: int, itens: list[dict], chave_regra: str, categoria_regra: st
                    UNION SELECT 1 FROM regras WHERE chave=? AND usuario_id=? LIMIT 1""",
                 (chave_regra, uid, chave_regra, uid)).fetchone():
             return False
-        c.executemany("UPDATE transacoes SET categoria=? WHERE id=? AND fatura_id IN (SELECT id FROM faturas WHERE usuario_id=?)",
+        # Só compra e estorno têm categoria editável: o id de um pagamento ou de uma entrada não pode ser recategorizado aqui.
+        c.executemany("UPDATE transacoes SET categoria=? WHERE id=? AND tipo IN ('compra','estorno') "
+                      "AND fatura_id IN (SELECT id FROM faturas WHERE usuario_id=?)",
                       [(i["categoria"], i["id"], uid) for i in itens])
         c.execute("INSERT INTO regras (usuario_id, chave, categoria) VALUES (?,?,?) "
                   "ON CONFLICT(usuario_id, chave) DO UPDATE SET categoria=excluded.categoria", (uid, chave_regra, categoria_regra))
@@ -536,7 +595,7 @@ def resumo(fid: int | None, uid: int) -> dict | None:
             f"""SELECT categoria AS nome, {GASTO} AS total_cents, COUNT(*) AS qtd FROM transacoes
                 WHERE fatura_id=? AND tipo IN ('compra','encargo','estorno') GROUP BY categoria
                 HAVING {GASTO} > 0 ORDER BY total_cents DESC""", (fid,))]
-        maiores = [dict(r) for r in c.execute(
+        maiores = [_tx_publica(r) for r in c.execute(
             """SELECT id, data, descricao, valor_cents, categoria, parcela_atual, parcela_total FROM transacoes
                WHERE fatura_id=? AND tipo='compra' ORDER BY valor_cents DESC LIMIT 5""", (fid,))]
         ant = c.execute(
@@ -570,7 +629,8 @@ def parcelas_futuras(uid: int) -> dict:
                     chave_mes = f"{mes_idx // 12:04d}-{mes_idx % 12 + 1:02d}"
                     m = meses.setdefault(chave_mes, {"mes": chave_mes, "total_cents": 0, "itens": []})
                     m["total_cents"] += t["valor_cents"]
-                    m["itens"].append({"descricao": t["descricao"], "valor_cents": t["valor_cents"],
+                    pub = _tx_publica({"descricao": t["descricao"]})
+                    m["itens"].append({"descricao": pub["descricao"], "titulo": pub["titulo"], "valor_cents": t["valor_cents"],
                                        "parcela": f"{t['parcela_atual'] + k}/{t['parcela_total']}",
                                        "emissor": f["emissor"]})
         lista = [meses[k] for k in sorted(meses)]

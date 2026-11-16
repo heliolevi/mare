@@ -2,14 +2,23 @@
 
 A Maré segue o manual de marca da HL ("oceano profundo"). O app é uma ferramenta de trabalho, então o mundo visual entra por tipo, paleta, densidade e um gesto de assinatura, nunca por layout ou controles.
 
-## Tokens
+## Cores: três, e só três
 
-- **Dark é o padrão** (azul-abismo `#050b1c`); o light entra quando o sistema pede (`#f4f8fb`).
-- Interface: `bg`, `surface`, `surface-2`, `line`, `line-strong`, `ink`, `ink-muted`, `cyan`. Oceano (`ocean-*`) é fixo nos dois temas.
-- Ciano é um ponto de luz por tela: CTA, foco, link, o nó do wordmark. Barras de dados usam cobalto; estados usam `ok`, `warn`, `danger`.
-- Separação por hairline de 1px, sem sombras. A única luz é o `cyan-glow` no botão primário.
-- Cantos: 4px (tags), 8px (controles), 14px (painéis). Pílula só no selo de status.
-- Espaço: grade de 4px.
+| Cor | Escuro | Claro | Faz o quê |
+|---|---|---|---|
+| **Marinho** | `#06101f` fundo, `#0b1a2f` superfície | `#f4f7fb` fundo, `#ffffff` superfície | Estrutura. Fundos, linhas e textos saem todos dele (neutros tingidos de azul, nunca cinza puro). |
+| **Ciano** (HL) | `#22c3e6` | `#0b6880` | Ação, foco, link, seleção e **dinheiro que entra** (`+R$`). Também o selo "Conferida". |
+| **Vermelho-coral** | `#ff6b6b` | `#c62f3a` | **Dinheiro que sai** (`−R$`): gastos, total da fatura, barras de categoria e de parcelas. Também alertas ("Divergente"). |
+
+- Não existem verde nem âmbar. Conferido = ciano; problema = vermelho, sempre com ícone e texto.
+- Dinheiro nunca depende só da cor: saída leva `−` (sinal de menos U+2212), entrada leva `+`. Pagamento de fatura e aplicações (só mudam o dinheiro de lugar) ficam neutros, sem sinal.
+- Tokens: `--money-out`, `--money-in`, `--bar` (barras = vermelho 78%). Na faixa marinha da conferência o vermelho clareia para `--band-money` `#ff8f87`.
+- Contrastes conferidos por cálculo: texto 4.5:1 ou mais e bordas de controle 3:1 ou mais, nos dois temas.
+- Dark é o padrão; o claro entra quando o sistema pede. Separação por hairline de 1px, sem sombras. Cantos: 4px (tags), 8px (controles), 14px (painéis). Espaço: grade de 4px.
+
+## Lançamentos
+
+A API nunca devolve a descrição crua do banco: `app/descricao.py` tira CPF, CNPJ, agência e conta e separa **título** (quem recebeu, capitalizado) de **detalhe** ("Pix enviado · Banco do Brasil"). A linha mostra título em negrito, detalhe embaixo, categoria e valor com sinal. Cada dia tem o subtotal de saídas no cabeçalho, e o topo da lista mostra saídas, entradas e saldo do que está filtrado.
 
 ## Logo
 

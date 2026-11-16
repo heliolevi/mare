@@ -1,6 +1,6 @@
 import { h, ico, novoId } from '../dom.js';
 import { api } from '../api.js';
-import { brl, brlNegativo, diaExtenso, dm, plural, semAcento } from '../format.js';
+import { brl, brlNegativo, diaExtenso, dm, plural, semAcento, sentido, valorComSinal, valorFalado } from '../format.js';
 import { toast } from '../toast.js';
 import { seletorFatura, semFaturas } from '../componentes.js';
 import type { Ctx, Fatura, TrocaCategoria, Transacao } from '../types.js';
@@ -16,7 +16,6 @@ const PASSO = 40;
 const msgErro = (e: unknown): string => (e instanceof Error ? e.message : 'Algo deu errado.');
 
 const ROTULO_TIPO: Record<string, string> = { pagamento: 'Pagamento', estorno: 'Estorno', encargo: 'Juros e taxas', saldo_anterior: 'Saldo anterior', entrada: 'Entrada' };
-const CREDITOS = new Set(['estorno', 'pagamento', 'entrada']);
 
 export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
   const { state } = ctx;
@@ -35,13 +34,20 @@ export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
   const idBusca = novoId('busca');
   const idCat = novoId('cat');
   const busca = h('input', { class: 'entrada', id: idBusca, type: 'search', autocomplete: 'off', placeholder: 'Nome do estabelecimento', value: filtro.q });
-  const catsPresentes = (): string[] => [...new Set(fat.transacoes.map((t) => t.categoria))].sort(col.compare);
-  if (filtro.cat && !catsPresentes().includes(filtro.cat)) filtro.cat = '';
+  // O filtro lista só as categorias que existem nesta fatura, com a quantidade, da mais usada para a menos.
+  // Assim fica claro por que "Transporte" não aparece aqui quando nenhum lançamento é de transporte.
+  const catsPresentes = (): [string, number][] => {
+    const n = new Map<string, number>();
+    for (const t of fat.transacoes) n.set(t.categoria, (n.get(t.categoria) || 0) + 1);
+    return [...n].sort(([a, x], [b, y]) => (a === 'Outros' ? 1 : b === 'Outros' ? -1 : y - x || col.compare(a, b)));
+  };
+  if (filtro.cat && !catsPresentes().some(([c]) => c === filtro.cat)) filtro.cat = '';
   const selCat = h('select', { id: idCat });
   function desenharCategorias(): void {
     const cats = catsPresentes();
-    if (filtro.cat && !cats.includes(filtro.cat)) filtro.cat = '';
-    selCat.replaceChildren(h('option', { value: '' }, 'Todas'), ...cats.map((c) => h('option', { value: c, selected: c === filtro.cat }, c)));
+    if (filtro.cat && !cats.some(([c]) => c === filtro.cat)) filtro.cat = '';
+    selCat.replaceChildren(h('option', { value: '' }, 'Todas'),
+      ...cats.map(([c, n]) => h('option', { value: c, selected: c === filtro.cat }, `${c} (${n})`)));
     selCat.value = filtro.cat;
   }
   desenharCategorias();
@@ -55,7 +61,7 @@ export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
     .filter(([v]) => v === '' || v === filtro.tipo
       || (v === 'parcela' ? fat.transacoes.some((t) => !!t.parcela_total) : fat.transacoes.some((t) => t.tipo === v)))
     .map(([v, r]) => [v, v === 'compra' && ehConta ? 'Saídas' : r]);
-  const contagem = h('p', { class: 'contagem', 'aria-live': 'polite' });
+  const contagem = h('div', { class: 'balanco', 'aria-live': 'polite' });
   const lista = h('div', { class: 'lista-tx' });
 
   function sincronizarUrl() {
@@ -76,7 +82,8 @@ export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
       : filtro.ordem === 'nome' ? (a, b) => col.compare(a.descricao, b.descricao) || cmpData(a, b)
       : cmpData;
     return fat.transacoes
-      .filter((t) => porTipo(t) && (!filtro.cat || t.categoria === filtro.cat) && (!q || semAcento(t.descricao).includes(q)))
+      .filter((t) => porTipo(t) && (!filtro.cat || t.categoria === filtro.cat)
+        && (!q || semAcento(`${t.titulo} ${t.descricao}`).includes(q)))
       .sort(cmp);
   }
 
@@ -104,10 +111,23 @@ export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
   function desenhar(focoId?: number, focoPrimeiroNovo?: number): void {
     desenharControles();
     const itens = visiveis();
-    const gasto = itens.reduce((s, t) => s + (t.tipo === 'estorno' ? -t.valor_cents : ['compra', 'encargo'].includes(t.tipo) ? t.valor_cents : 0), 0);
-    contagem.textContent = itens.length
-      ? `${plural(itens.length, 'lançamento', 'lançamentos')}${gasto > 0 ? `, ${brl(gasto)} em ${ehConta ? 'saídas' : 'gastos'}` : ''}`
-      : '';
+    let saidas = 0; let entradas = 0;
+    for (const t of itens) {
+      const sd = sentido(t.tipo);
+      if (sd === 'saida') saidas += t.valor_cents; else if (sd === 'entrada') entradas += t.valor_cents;
+    }
+    const item = (rotulo: string, valor: string, cls: string) =>
+      h('div', { class: `balanco-item ${cls}` }, h('dt', {}, rotulo), h('dd', { class: 'num' }, valor));
+    const numeros = h('dl', { class: 'balanco-numeros' });
+    if (saidas) numeros.append(item(ehConta ? 'Saídas' : 'Gastos', brlNegativo(saidas), 'bal-saida'));
+    if (entradas) numeros.append(item(ehConta ? 'Entradas' : 'Estornos', `+${brl(entradas)}`, 'bal-entrada'));
+    if (saidas && entradas) {
+      const saldo = entradas - saidas;
+      numeros.append(item('Saldo', saldo < 0 ? brlNegativo(-saldo) : `+${brl(saldo)}`, 'bal-saldo'));
+    }
+    contagem.replaceChildren(...(itens.length
+      ? [h('p', { class: 'contagem' }, plural(itens.length, 'lançamento', 'lançamentos')), numeros]
+      : []));
     if (!itens.length) {
       lista.replaceChildren(h('div', { class: 'vazio' },
         ico('magnifying-glass'),
@@ -116,11 +136,26 @@ export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
         h('button', { class: 'btn btn-secundario', type: 'button', onclick: limpar }, 'Limpar filtros')));
       return;
     }
-    const grupos = new Map();
     const pagina = itens.slice(0, limite);
-    for (const t of pagina) { if (!grupos.has(t.data)) grupos.set(t.data, []); grupos.get(t.data).push(t); }
-    lista.replaceChildren(...[...grupos].map(([data, ts]) => h('section', { class: 'dia', 'aria-label': diaExtenso(data) },
-      h('h3', {}, diaExtenso(data)), ...ts.map(linha))));
+    if (filtro.ordem !== 'data') {
+      // Ordenado por valor ou por nome: agrupar por dia misturaria a ordem (a maior compra arrastaria o resto do dia).
+      // Fica uma lista plana; cada linha já mostra a própria data.
+      lista.replaceChildren(h('section', { class: 'dia', 'aria-label': ORDENS.find(([v]) => v === filtro.ordem)?.[1] ?? 'Lançamentos' },
+        ...pagina.map(linha)));
+    } else {
+      // O subtotal do dia soma todos os lançamentos dele, não só os que couberam nesta página.
+      const saidasDoDia = new Map<string, number>();
+      for (const t of itens) if (sentido(t.tipo) === 'saida') saidasDoDia.set(t.data, (saidasDoDia.get(t.data) ?? 0) + t.valor_cents);
+      const grupos = new Map<string, Transacao[]>();
+      for (const t of pagina) { const g = grupos.get(t.data); if (g) g.push(t); else grupos.set(t.data, [t]); }
+      lista.replaceChildren(...[...grupos].map(([data, ts]) => {
+        const saiu = saidasDoDia.get(data) ?? 0;
+        return h('section', { class: 'dia', 'aria-label': diaExtenso(data) },
+          h('h3', { class: 'dia-cab' }, h('span', {}, diaExtenso(data)),
+            saiu ? h('span', { class: 'dia-total num', 'aria-label': `saídas do dia: ${brl(saiu)}` }, brlNegativo(saiu)) : null),
+          ...ts.map(linha));
+      }));
+    }
     if (itens.length > pagina.length) {
       lista.append(h('div', { class: 'mais' },
         h('p', {}, `Mostrando ${pagina.length} de ${itens.length}`),
@@ -135,25 +170,26 @@ export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
   }
 
   function linha(t: Transacao): HTMLElement {
-    const credito = CREDITOS.has(t.tipo);
-    const valor = t.tipo === 'entrada' ? `+${brl(t.valor_cents)}` : credito ? brlNegativo(t.valor_cents) : brl(t.valor_cents);
+    const sd = sentido(t.tipo);
     const editavel = t.tipo === 'compra' || t.tipo === 'estorno';
     let controle;
     if (editavel) {
-      const sel: HTMLSelectElement = h('select', { 'aria-label': `Categoria de ${t.descricao}`, onchange: () => trocar(t, sel) },
+      const sel: HTMLSelectElement = h('select', { 'aria-label': `Categoria de ${t.titulo}, ${valorFalado(t.valor_cents, sd)}`, onchange: () => trocar(t, sel) },
         // A categoria atual entra na lista mesmo se for removida das editáveis, para o select não mentir.
         (state.categorias.includes(t.categoria) ? state.categorias : [t.categoria, ...state.categorias]).map((c) => h('option', { value: c, selected: c === t.categoria }, c)));
       controle = h('span', { class: 'cat-troca' }, sel);
     } else {
       controle = h('span', { class: 'cat-fixa' }, t.tipo === 'interno' ? t.categoria : (ROTULO_TIPO[t.tipo] || t.categoria));
     }
-    return h('article', { class: `tx${credito ? ' tx-credito' : ''}${t.tipo === 'pagamento' || t.tipo === 'interno' ? ' tx-apagado' : ''}`, 'data-tx': t.id },
+    return h('article', { class: `tx tx-${sd}`, 'data-tx': t.id },
       h('span', { class: 'tx-data num' }, dm(t.data)),
-      h('span', { class: 'tx-desc' }, t.descricao,
-        t.parcela_total ? h('span', { class: 'etiqueta' }, `${t.parcela_atual}/${t.parcela_total}`) : null,
-        t.tipo === 'estorno' ? h('span', { class: 'etiqueta' }, 'Estorno') : null),
+      h('span', { class: 'tx-desc' },
+        h('span', { class: 'tx-titulo', title: t.descricao }, t.titulo,
+          t.parcela_total ? h('span', { class: 'etiqueta' }, `${t.parcela_atual}/${t.parcela_total}`) : null,
+          t.tipo === 'estorno' ? h('span', { class: 'etiqueta' }, 'Estorno') : null),
+        t.detalhe ? h('span', { class: 'tx-detalhe' }, t.detalhe) : null),
       h('span', { class: 'tx-cat' }, controle),
-      h('span', { class: 'tx-valor num' }, valor));
+      h('span', { class: 'tx-valor num', 'aria-label': valorFalado(t.valor_cents, sd) }, valorComSinal(t.valor_cents, sd)));
   }
 
   async function trocar(t: Transacao, sel: HTMLSelectElement): Promise<void> {
@@ -166,7 +202,7 @@ export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
       desenharCategorias();
       desenhar(t.id);
       const outros = r.atualizadas - 1;
-      toast(outros > 0 ? `${t.descricao} e mais ${plural(outros, 'parecido', 'parecidos')} agora são ${nova}.` : `${t.descricao} agora é ${nova}.`, {
+      toast(outros > 0 ? `${t.titulo} e mais ${plural(outros, 'parecido', 'parecidos')} agora são ${nova}.` : `${t.titulo} agora é ${nova}.`, {
         acao: {
           rotulo: 'Desfazer',
           fn: async () => {

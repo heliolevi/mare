@@ -2,7 +2,9 @@
 
 Organizador de finanças pessoais com foco em fatura de cartão de crédito. Você importa o arquivo **OFX** ou **CSV** da fatura, a Maré soma os lançamentos, confere com o total do banco e mostra para onde o dinheiro foi. É um PWA servido por um backend FastAPI com SQLite.
 
-Nada sai da sua máquina: o arquivo é lido no servidor e descartado, e só os lançamentos ficam no banco. Não há chave de API nem serviço externo.
+Nada sai da sua máquina: o arquivo é lido no servidor e descartado, e só os lançamentos ficam no banco. O único serviço externo é opcional: um servidor SMTP, usado só se você ligar a confirmação de e-mail no cadastro.
+
+Passo a passo para rodar em desenvolvimento: [docs/COMO-RODAR.md](docs/COMO-RODAR.md).
 
 ## O que precisa
 

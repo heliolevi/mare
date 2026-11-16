@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import re
 
+from .descricao import apresentar
 from .norm import norm_text
 
 # Categorias que a pessoa escolhe nos lançamentos.
 CATEGORIAS_EDITAVEIS = [
     "Alimentação", "Mercado", "Transporte", "Saúde", "Educação", "Lazer",
-    "Assinaturas", "Compras", "Casa", "Viagem", "Contas e serviços", "Outros",
+    "Assinaturas", "Compras", "Casa", "Viagem", "Contas e serviços", "Transferências", "Outros",
 ]
 # Categorias que o app define sozinho pelo tipo do lançamento (não aparecem na troca).
 CATEGORIAS_FIXAS = ["Juros e taxas", "Pagamento de fatura", "Entradas", "Investimentos"]
@@ -21,24 +22,29 @@ _REGRAS: list[tuple[str, list[str]]] = [
                      "anthropic", "claude ai", "github", "notion", "canva", "deezer", "globoplay", "paramount"]),
     ("Alimentação", ["uber eats", "ifood", "rappi", "restaurante", "lanchonete", "padaria", "pizzaria", "burger",
                      "mcdonald", "subway", "outback", "cafe", "cafeteria", "sorveteria", "acai", "churrascaria",
-                     "bar e", "pastelaria", "confeitaria"]),
+                     "bar e", "pastelaria", "confeitaria", "pizza", "pizzas", "hamburgueria", "lanches", "lanchonete",
+                     "grill", "churrasco", "espetinho", "sushi", "temaki", "bistro", "delivery", "food", "acougue", "coxinha",
+                     "salgado", "salgados", "tapioca", "crepe", "doceria", "bolos", "sorvete"]),
     ("Compras", ["mercado livre", "mercadolivre", "amazon", "shopee", "aliexpress", "shein", "magalu",
                  "magazine luiza", "americanas", "casas bahia", "renner", "riachuelo", "c&a", "zara", "kabum"]),
     ("Mercado", ["supermercado", "mercado", "atacadao", "assai", "carrefour", "pao de acucar", "atacarejo",
-                 "hortifruti", "mateus", "extra"]),
-    ("Transporte", ["uber", "99", "99app", "cabify", "posto", "shell", "ipiranga", "combustivel",
+                 "hortifruti", "mateus", "extra hiper", "supermercado extra", "mercado extra"]),
+    ("Transporte", ["uber", "99app", "99 pop", "99 taxi", "cabify", "posto", "shell", "ipiranga", "combustivel",
+                    "auto pecas", "autopecas", "auto center", "oficina", "mecanica", "borracharia", "pneus", "lava jato",
                     "estacionamento", "pedagio", "sem parar", "conectcar"]),
     ("Saúde", ["farmacia", "drogaria", "drogasil", "raia", "pacheco", "pague menos", "hospital", "clinica",
                "laboratorio", "unimed", "odonto"]),
     ("Educação", ["faculdade", "universidade", "curso", "udemy", "alura", "escola", "livraria", "coursera"]),
     ("Lazer", ["cinema", "ingresso", "steam", "playstation", "xbox", "nintendo", "epic games", "academia",
-               "smartfit", "gympass", "jiu"]),
+               "smartfit", "gympass", "jiu jitsu", "jiujitsu", "wellhub", "ggmax", "riot games", "garena"]),
     ("Viagem", ["latam", "azul linhas", "gol linhas", "booking", "airbnb", "hotel", "decolar", "hospedagem"]),
     ("Casa", ["leroy", "telhanorte", "tok stok", "madeireira", "ferragens", "eletrica"]),
     ("Contas e serviços", ["claro", "vivo", "tim", "oi fibra", "energia", "equatorial", "agua", "internet",
-                           "condominio", "seguro"]),
+                           "condominio", "seguradora", "porto seguro"]),
 ]
 _COMPILADAS = [(cat, re.compile(r"\b(?:" + "|".join(re.escape(k) for k in kws) + r")\b")) for cat, kws in _REGRAS]
+# Pedaços que aparecem grudados no nome da loja ("FACEBURGUER", "DOMPIZZA"): casam no meio da palavra.
+_DENTRO_DA_PALAVRA = [("Alimentação", re.compile(r"burger|burguer|pizz|lanchon|hamburg"))]
 
 # Categorias que bancos costumam colocar no CSV, traduzidas para as nossas.
 _DO_ARQUIVO = {
@@ -84,10 +90,18 @@ def categorizar(descricao: str, tipo: str, cat_arquivo: str | None, regras_usuar
     k = chave(descricao)
     if k in regras_usuario:
         return regras_usuario[k]
-    texto = norm_text(descricao)
+    ap = apresentar(descricao)
+    # As palavras-chave olham só o nome de quem recebeu: o banco do recebedor ("Mercado Pago") e o tipo da operação
+    # não dizem nada sobre o que foi comprado.
+    texto = norm_text(ap.titulo)
     for cat, rx in _COMPILADAS:
         if rx.search(texto):
             return cat
+    for cat, rx in _DENTRO_DA_PALAVRA:
+        if rx.search(texto):
+            return cat
+    if ap.transferencia and ap.pessoa:
+        return "Transferências"  # Pix ou TED para uma pessoa física
     if cat_arquivo:
         mapeada = _DO_ARQUIVO.get(norm_text(cat_arquivo))
         if mapeada:
