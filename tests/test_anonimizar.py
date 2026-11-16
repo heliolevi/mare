@@ -138,3 +138,64 @@ def test_rodar_de_novo_nao_troca_os_apelidos_de_lugar():
     ordem_invertida = "\n".join(reversed(uma.splitlines()))
     duas, _ = an.anonimizar(ordem_invertida)
     assert duas == ordem_invertida
+
+
+# ---------- modo genérico: nomes locais viram nomes genéricos da mesma categoria ----------
+
+COOP = "CC CENTRO LESTE NORTE MARANHENSE - SICOOB CENTROLESTE Agência: 4321 Conta: 98765-4"
+PIZZARIA = f"Transferência enviada pelo Pix - PIZZARIA DO ZE DA ILHA - 11.222.333/0001-44 - {COOP}"
+OFICINA = "Transferência enviada pelo Pix - AUTO PECAS DO MANOEL - 22.333.444/0001-55 - BCO BRADESCO S.A. (0237) Agência: 1111 Conta: 22222-3"
+IGREJA = "Transferência enviada pelo Pix - IGREJA BATISTA DO ANGELIM - 33.444.555/0001-66 - BCO DO BRASIL S.A. (0001) Agência: 2222 Conta: 33333-4"
+MARCA = "Transferência enviada pelo Pix - NETFLIX.COM LTDA - 44.555.666/0001-77 - ITAU UNIBANCO S.A. (0341) Agência: 3333 Conta: 44444-5"
+
+
+def _ofx_locais() -> bytes:
+    extra = [("20261030", "-60.00", PIZZARIA), ("20261029", "-90.00", OFICINA),
+             ("20261028", "-50.00", IGREJA), ("20261027", "-39.90", MARCA)]
+    return _ofx_com(extra)
+
+
+def _categorias(f):
+    return {(t.data.isoformat(), t.bruto_cents): t.categoria for t in f.txs}
+
+
+def test_generico_tira_o_que_entrega_a_cidade_a_religiao_e_a_cooperativa():
+    novo, rel = an.anonimizar(_ofx_locais().decode("cp1252"), generico=True)
+    for local in ("PIZZARIA", "ZE DA ILHA", "MANOEL", "IGREJA", "BATISTA", "ANGELIM", "MARANHENSE", "SICOOB"):
+        assert local not in novo, local
+    assert "RESTAURANTE EXEMPLO 01" in novo and "AUTO PECAS EXEMPLO 01" in novo and "EMPRESA EXEMPLO 01" in novo
+    assert "BANCO EXEMPLO" in novo                      # a cooperativa regional sumiu
+    assert "NETFLIX.COM LTDA" in novo                   # marca conhecida fica
+    assert "BCO DO BRASIL S.A. (0001)" in novo and "BCO BRADESCO S.A. (0237)" in novo  # banco grande fica
+    assert an.achados(novo) == []
+    assert rel.contagem["nomes de empresas"] == 3
+
+
+def test_generico_mantem_categorias_datas_e_valores():
+    cru = _ofx_locais()
+    novo, _ = an.anonimizar(cru.decode("cp1252"), generico=True)
+    antes, depois = importar(cru, "a.ofx", {}), importar(novo.encode("cp1252"), "b.ofx", {})
+    assert _chaves(antes) == _chaves(depois) and antes.soma_cents == depois.soma_cents
+    assert _categorias(antes) == _categorias(depois)    # o nome genérico cai na mesma categoria do original
+    assert _categorias(depois)[("2026-10-30", -6000)] == "Alimentação"
+    assert _categorias(depois)[("2026-10-29", -9000)] == "Transporte"
+
+
+def test_generico_e_idempotente_e_o_modo_normal_nao_muda():
+    texto = _ofx_locais().decode("cp1252")
+    uma, _ = an.anonimizar(texto, generico=True)
+    duas, _ = an.anonimizar(uma, generico=True)
+    assert uma == duas
+    normal, _ = an.anonimizar(texto)
+    assert "PIZZARIA DO ZE DA ILHA" in normal           # sem a opção, empresas com CNPJ mantêm o nome
+
+
+def test_cli_com_generico(tmp_path, capsys):
+    origem = tmp_path / "_originais" / "x.ofx"
+    origem.parent.mkdir()
+    origem.write_bytes(_ofx_locais())
+    destino = tmp_path / "bancos" / "teste-conta.ofx"
+    assert an.main([str(origem), str(destino), "--generico"]) == 0
+    saida = capsys.readouterr().out + destino.read_text(encoding="cp1252")
+    for local in ("PIZZARIA", "MANOEL", "IGREJA", "MARANHENSE"):
+        assert local not in saida, local

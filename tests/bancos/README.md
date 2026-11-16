@@ -11,10 +11,12 @@ Cada arquivo aqui é uma fatura ou extrato real, **já anonimizado**, que vira u
 3. Anonimize:
 
    ```powershell
-   .venv\Scripts\python tools\anonimizar.py tests\bancos\_originais\ORIGINAL.ofx tests\bancos\nubank-conta.ofx
+   .venv\Scripts\python tools\anonimizar.py tests\bancos\_originais\ORIGINAL.ofx tests\bancos\nubank-conta.ofx --generico
    ```
 
    O nome de saída precisa ser neutro (sem número de conta). O script recusa se achar dado pessoal sobrando e não imprime o conteúdo original.
+
+   Use sempre `--generico` num repositório público: sem ele só saem CPF, CNPJ, agência, conta e nomes de pessoas, mas o nome das lojas continua, e isso entrega a cidade da pessoa, a cooperativa do banco e até a religião (uma doação a uma igreja, por exemplo). Com `--generico`, cada loja ou empresa vira um nome genérico da mesma categoria (`RESTAURANTE EXEMPLO 01`), e os bancos pequenos viram `BANCO EXEMPLO`. Marcas conhecidas (Netflix, Mercado Livre) e os grandes bancos ficam. Datas e valores nunca mudam.
 4. Leia a lista "Confira se sobrou algum nome" que o script mostra e abra o arquivo gerado: procure nomes, apelidos e números que ainda façam sentido para alguém. O script só acha o que tem formato conhecido (CPF, CNPJ, agência, conta, e-mail, telefone, e o nome de pessoa que vem antes de um CPF).
 5. Crie ao lado o arquivo com o resultado esperado, com o mesmo nome e a extensão `.esperado.json`:
 

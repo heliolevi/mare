@@ -1,11 +1,16 @@
 """Anonimiza um arquivo de fatura ou extrato (OFX ou CSV) para virar teste público.
 
-    python tools/anonimizar.py ORIGEM DESTINO [--sobrescrever]
+    python tools/anonimizar.py ORIGEM DESTINO [--generico] [--sobrescrever]
 
 O que troca: CPF e CNPJ (inteiros ou mascarados), agência e conta, números longos soltos (11 ou 14 dígitos), e-mails,
 telefones, o nome de pessoa física que vem antes de um CPF em Pix e transferências, e as tags de identidade do OFX
 (ACCTID, BANKID, BRANCHID, FITID...). O que NÃO troca: datas, valores, tipos e o nome de lojas e empresas (CNPJ), porque é
 isso que o teste precisa conferir.
+
+Com --generico, também troca o nome de lojas e empresas locais por um nome genérico que cai na MESMA categoria
+(RESTAURANTE EXEMPLO 01, AUTO PECAS EXEMPLO 01...) e reduz bancos pequenos a BANCO EXEMPLO, porque o que sobra num
+extrato (onde a pessoa compra, a cooperativa, a igreja) revela a cidade e as crenças dela. Marcas conhecidas (categorias
+Assinaturas e Compras) e os grandes bancos ficam. As datas e os valores nunca mudam.
 
 O script nunca escreve o resultado se achar algo suspeito sobrando, e nunca imprime o conteúdo original. Ele não
 consegue achar um nome de pessoa que apareça sem CPF ao lado: por isso mostra no fim as descrições com Pix ou
@@ -19,6 +24,10 @@ import re
 import sys
 from collections import Counter
 from pathlib import Path
+
+# O script roda como `python tools/anonimizar.py`, então a raiz do projeto não está no path por padrão.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app.categorize import categorizar  # noqa: E402  (só para o --generico escolher um nome da mesma categoria)
 
 # CPF e CNPJ, inteiros ou mascarados (•, *, x): 123.456.789-00, •••.651.653-••, 48.568.213/0002-21
 DOC = re.compile(r"[•*xX\d]{2,3}\.[•*xX\d]{3}\.[•*xX\d]{3}(?:/[•*xX\d]{4})?-[•*xX\d]{2}")
@@ -35,6 +44,20 @@ OFX_IDENTIDADE = re.compile(r"(<(?:ACCTID|BANKID|BRANCHID|ACCTKEY|CHECKNUM|REFNU
 OFX_FITID = re.compile(r"(<FITID>)([^<\r\n]*)")
 CITA_PIX = re.compile(r"(?i)\b(pix|transfer[êe]ncia|ted|doc)\b")
 
+# <nome> - <documento neutro> - <banco> [(codigo)] [Agência: ... Conta: ...], já depois da limpeza normal
+EMPRESA_E_BANCO = re.compile(
+    r"(?<=- )(?P<nome>[^-<>\r\n]+?)(?P<s1> - )(?P<doc>00\.000\.000/0000-00|000\.000\.000-00)(?P<s2> - )"
+    r"(?P<banco>[^<\r\n]*?)(?P<fim>\s*(?:\(\d{3,4}\))?\s*(?:Ag[êe]ncia[^<\r\n]*)?)(?=$|[<\r\n])", re.M)
+BANCOS_MANTIDOS = re.compile(r"(?i)^(bco|banco|nu pagamentos|mercado ?pago|pagseguro|stone|cloudwalk|pay2all|ef[íi]|picpay|"
+                             r"inter|c6|santander|bradesco|ita[úu]|caixa)\b")
+MARCAS_QUE_FICAM = {"Assinaturas", "Compras"}   # categorias que só saem de uma lista de marcas conhecidas
+ROTULO_POR_CATEGORIA = {
+    "Alimentação": "RESTAURANTE EXEMPLO", "Mercado": "SUPERMERCADO EXEMPLO", "Transporte": "AUTO PECAS EXEMPLO",
+    "Saúde": "FARMACIA EXEMPLO", "Educação": "ESCOLA EXEMPLO", "Lazer": "CINEMA EXEMPLO", "Viagem": "HOTEL EXEMPLO",
+    "Casa": "FERRAGENS EXEMPLO", "Contas e serviços": "ENERGIA EXEMPLO",
+}
+ROTULO_PADRAO = "EMPRESA EXEMPLO"
+JA_GENERICO = re.compile(r"[A-ZÇÃÕÁÉÍÓÚ ]+ EXEMPLO \d+")
 PLACEHOLDER_EMAIL = "email@exemplo.com"
 PLACEHOLDER_TEL = "(00) 00000-0000"
 
@@ -56,6 +79,8 @@ class Relatorio:
         self.contagem: Counter[str] = Counter()
         self.nomes: dict[str, str] = {}
         self.fitids: dict[str, str] = {}
+        self.empresas: dict[str, str] = {}
+        self.rotulos: Counter[str] = Counter()
 
     def pessoa(self, nome: str) -> str:
         if re.fullmatch(r"PESSOA \d+", nome.strip()):  # já anonimizado: rodar de novo não pode trocar os números
@@ -69,6 +94,23 @@ class Relatorio:
         """Registra que algo desse tipo foi trocado e devolve o texto novo (deixa as lambdas do re.sub legíveis)."""
         self.contagem[tipo] += 1
         return resultado
+
+    def empresa_generica(self, nome: str) -> str:
+        """Nome genérico que cai na mesma categoria do original (ou o próprio nome, se for uma marca conhecida)."""
+        limpo = re.sub(r"\s+", " ", nome.strip())
+        if JA_GENERICO.fullmatch(limpo):  # já genérico: rodar de novo não troca os números
+            return limpo
+        chave = limpo.casefold()
+        if chave not in self.empresas:
+            categoria = categorizar(limpo, "compra", None, {})
+            if categoria in MARCAS_QUE_FICAM:
+                self.empresas[chave] = limpo
+            else:
+                rotulo = ROTULO_POR_CATEGORIA.get(categoria, ROTULO_PADRAO)
+                self.rotulos[rotulo] += 1
+                self.empresas[chave] = f"{rotulo} {self.rotulos[rotulo]:02d}"
+                self.contagem["nomes de empresas"] += 1
+        return self.empresas[chave]
 
     def fitid(self, original: str) -> str:
         if original not in self.fitids:
@@ -104,12 +146,30 @@ def limpar_texto(texto: str, rel: Relatorio) -> str:
     return t
 
 
+def generalizar(texto: str, rel: Relatorio) -> str:
+    """Modo --generico: troca o nome da empresa e os bancos pequenos (os que entregam a cidade ou a cooperativa)."""
+
+    def troca(m: re.Match[str]) -> str:
+        nome = m.group("nome")
+        if "/" in m.group("doc"):  # CNPJ: o nome é de empresa; no CPF o nome já virou PESSOA NN
+            nome = rel.empresa_generica(nome)
+        banco = m.group("banco").strip()
+        if banco and not BANCOS_MANTIDOS.match(banco):
+            banco = rel.conta("bancos pequenos", "BANCO EXEMPLO")
+        return f"{nome}{m.group('s1')}{m.group('doc')}{m.group('s2')}{banco}{m.group('fim')}"
+
+    return EMPRESA_E_BANCO.sub(troca, texto)
+
+
 def eh_ofx(texto: str) -> bool:
     return "<OFX>" in texto.upper() or "OFXHEADER" in texto.upper()
 
 
-def anonimizar(texto: str, rel: Relatorio | None = None) -> tuple[str, Relatorio]:
+def anonimizar(texto: str, rel: Relatorio | None = None, generico: bool = False) -> tuple[str, Relatorio]:
     rel = rel or Relatorio()
+    if generico:
+        base, rel = anonimizar(texto, rel)  # primeiro a limpeza normal; o modo genérico trabalha sobre o texto já neutro
+        return generalizar(base, rel), rel
     if eh_ofx(texto):
         t = OFX_VALORES_DE_TEXTO.sub(lambda m: m.group(1) + limpar_texto(m.group(2), rel), texto)
         t = OFX_IDENTIDADE.sub(lambda m: rel.conta("ids de conta", m.group(1) + _zeros(m.group(2))), t)
@@ -171,6 +231,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("origem", type=Path)
     ap.add_argument("destino", type=Path)
     ap.add_argument("--sobrescrever", action="store_true", help="permite sobrescrever um destino que já existe")
+    ap.add_argument("--generico", action="store_true",
+                    help="troca nomes de lojas e bancos pequenos por nomes genéricos da mesma categoria "
+                         "(recomendado para repositório público)")
     a = ap.parse_args(argv)
 
     if not a.origem.is_file():
@@ -191,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     texto, codificacao = _decodificar(a.origem.read_bytes())
-    novo, rel = anonimizar(texto)
+    novo, rel = anonimizar(texto, generico=a.generico)
     sobras = achados(novo)
     if sobras:
         print("PAREI: ainda parece haver dado pessoal no resultado, então nada foi escrito.", file=sys.stderr)
