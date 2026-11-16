@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { brl, brlNegativo, diaExtenso, dm, plural, semAcento, sentido, valorComSinal, valorFalado } from '../format.js';
 import { toast } from '../toast.js';
 import { seletorFatura, semFaturas } from '../componentes.js';
+import { avisoExemplo } from '../exemplo.js';
 import type { Ctx, Fatura, TrocaCategoria, Transacao } from '../types.js';
 
 type FiltroTipo = '' | 'compra' | 'parcela' | 'estorno' | 'encargo' | 'entrada';
@@ -229,6 +230,7 @@ export default async function transacoes(ctx: Ctx): Promise<HTMLElement> {
   desenhar();
 
   return h('div', {},
+    avisoExemplo(ctx),
     h('div', { class: 'topo' },
       h('div', { class: 'topo-texto' }, h('h1', {}, 'Transações'), h('p', {}, 'Trocar a categoria de um lançamento vale para os parecidos, inclusive nos próximos arquivos.')),
       seletorFatura(ctx)),

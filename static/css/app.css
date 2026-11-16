@@ -344,6 +344,18 @@ details > summary::marker { color: var(--ink-2); }
 .vazio { display: grid; gap: var(--s-4); justify-items: start; padding: var(--s-8) 0; }
 .vazio p { color: var(--ink-2); }
 .vazio .ico { width: 2rem; height: 2rem; color: var(--cyan); }
+.acoes-vazio { display: flex; flex-wrap: wrap; gap: var(--s-3); }
+.vazio .erro { margin: 0; }
+
+/* Aviso de que há uma fatura de exemplo na conta (modo demonstração) */
+.exemplo-aviso {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4);
+  padding: var(--s-3) var(--s-4); margin-bottom: var(--s-6);
+  border: 1px solid var(--field-border); border-radius: var(--r); background: var(--surface);
+}
+.exemplo-aviso .ico { flex: none; color: var(--cyan); }
+.exemplo-aviso p { flex: 1 1 16rem; margin: 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.exemplo-aviso strong { color: var(--ink); }
 .esqueleto { display: grid; gap: var(--s-4); }
 .esq { border-radius: var(--r); background: linear-gradient(90deg, var(--line) 0%, color-mix(in srgb, var(--line) 50%, var(--surface)) 50%, var(--line) 100%); background-size: 200% 100%; }
 @media (prefers-reduced-motion: no-preference) { .esq { animation: brilho 1.4s ease-in-out infinite; } }
@@ -471,6 +483,8 @@ details[open] > summary::after { transform: rotate(180deg); }
 .mare .entrada { background: var(--ocean-abyss); color: #e8f1f8; border-color: #4a6fa3; }
 .mare .btn-primario { background: var(--ocean-neon); color: var(--ocean-abyss); }
 .mare .btn-primario:hover:not(:disabled) { background: #5bd6ef; box-shadow: 0 0 18px rgb(34 195 230 / 0.35); }
+.mare .btn-secundario { background: transparent; color: #e8f1f8; border-color: #4a6fa3; }
+.mare .btn-secundario:hover:not(:disabled) { background: rgb(232 241 248 / 0.08); border-color: #e8f1f8; }
 .mare :focus-visible { box-shadow: 0 0 0 2px #030714, 0 0 0 4px var(--ocean-neon); }
 .mare .erro { color: #ffb4ae; }
 .vazio.mare { justify-items: start; padding: var(--s-10) var(--s-6); max-width: 36rem; }

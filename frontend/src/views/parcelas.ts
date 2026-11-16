@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { brl, mesCurto, mesLongo, plural } from '../format.js';
 import { dica } from '../tooltip.js';
 import { semFaturas } from '../componentes.js';
+import { avisoExemplo } from '../exemplo.js';
 import type { Ctx, ParcelasFuturas } from '../types.js';
 
 const LIMITE_GRAFICO = 12;
@@ -60,7 +61,7 @@ export default async function parcelas(ctx: Ctx): Promise<HTMLElement> {
 
   mostrarDetalhe();
   const maior = visiveis.reduce((a, m) => (m.total_cents > a.total_cents ? m : a));
-  return h('div', {}, topo,
+  return h('div', {}, avisoExemplo(ctx), topo,
     h('p', { class: 'muted' }, `O maior mês é ${mesLongo(maior.mes)}, com ${brl(maior.total_cents)}.`),
     h('div', { class: 'secao' }, colunas, rotulos),
     dados.meses.length > LIMITE_GRAFICO ? h('p', { class: 'dica' }, `O gráfico mostra os ${LIMITE_GRAFICO} primeiros meses. A tabela abaixo tem todos.`) : null,

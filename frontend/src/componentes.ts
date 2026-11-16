@@ -1,5 +1,6 @@
 import { h, ico, novoId } from './dom.js';
 import { dataBR } from './format.js';
+import { carregarExemplo } from './exemplo.js';
 import { logoSimbolo } from './logo.js';
 import type { Ctx, FaturaResumo } from './types.js';
 
@@ -27,12 +28,37 @@ export function selo(f: Pick<FaturaResumo, 'status' | 'conta'>): HTMLElement {
   return h('span', { class: 'selo selo-neutro' }, ico('info'), 'Sem total');
 }
 
-export function semFaturas(_ctx?: Ctx): HTMLElement {
+export function semFaturas(ctx?: Ctx): HTMLElement {
+  // Quem ainda não tem o arquivo do banco em mãos pode ver o app funcionando com uma fatura fictícia.
+  const erro = h('p', { class: 'erro', role: 'alert', hidden: true });
+  const exemplo = h('button', {
+    class: 'btn btn-secundario', type: 'button',
+    onclick: async () => {
+      if (!ctx) return;
+      erro.hidden = true;
+      exemplo.disabled = true;
+      exemplo.replaceChildren(ico('circle-notch', 'girar'), 'Abrindo o exemplo');
+      exemplo.setAttribute('aria-busy', 'true');
+      try {
+        await carregarExemplo(ctx);
+      } catch (e) {
+        erro.textContent = e instanceof Error ? e.message : 'Algo deu errado.';
+        erro.hidden = false;
+        exemplo.disabled = false;
+        exemplo.replaceChildren('Ver com uma fatura de exemplo');
+        exemplo.removeAttribute('aria-busy');
+      }
+    },
+  }, 'Ver com uma fatura de exemplo');
   return h('div', { class: 'vazio mare' },
     logoSimbolo('logo-simbolo logo-grande'),
     h('h1', {}, 'Nenhuma fatura ainda'),
     h('p', {}, 'Importe o arquivo OFX ou CSV da fatura do cartão. O app soma tudo, confere com o total e mostra para onde o dinheiro foi.'),
-    h('a', { class: 'btn btn-primario', href: '#/faturas' }, 'Importar fatura'));
+    h('div', { class: 'acoes-vazio' },
+      h('a', { class: 'btn btn-primario', href: '#/faturas' }, 'Importar fatura'),
+      ctx ? exemplo : null),
+    ctx ? h('p', { class: 'dica' }, 'Ainda não tem o arquivo? Veja como a Maré funciona com dados fictícios. Dá para excluir depois.') : null,
+    erro);
 }
 
 export function confirmar({ titulo, texto, ok = 'Excluir' }: { titulo: string; texto: string; ok?: string }): Promise<boolean> {

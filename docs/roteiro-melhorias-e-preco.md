@@ -34,7 +34,7 @@ Coisas pequenas que evitam dor de cabeça depois.
 
 Quem abre a Maré pela primeira vez ainda não tem o arquivo em mãos. Hoje a tela inicial pede um OFX e a pessoa trava.
 
-- [ ] **Modo demonstração:** botão "Ver com uma fatura de exemplo" que carrega uma fatura fictícia. A pessoa vê a conferência, as categorias e as parcelas antes de ir atrás do arquivo.
+- [x] **Modo demonstração:** botão "Ver com uma fatura de exemplo" que carrega uma fatura fictícia. A pessoa vê a conferência, as categorias e as parcelas antes de ir atrás do arquivo. Feito: o arquivo fica em `static/exemplo/` e passa pelo mesmo caminho de um upload real (sem endpoint novo). Resumo, Transações e Parcelas mostram um aviso com "Excluir o exemplo" enquanto ele estiver na conta, porque as parcelas do exemplo entram na soma geral. Os testes em `tests/test_exemplo.py` garantem que ele continua fictício e saindo "Conferido".
 - [ ] **"Como baixar no meu banco":** na tela de importar, uma lista de bancos e, ao clicar, o passo a passo curto (com print) de onde fica o "Exportar OFX" naquele app. É o ponto em que mais gente vai desistir. Comece só pelos bancos que entraram nos testes da Fase 0 e acrescente os outros conforme os testadores mandarem os prints.
 - [ ] **Subir vários arquivos de uma vez:** arrastar a fatura do Nubank e a do Itaú juntas.
 - [ ] **Divergência que explica:** quando a soma não bate, sugerir a causa provável ("parece faltar o IOF de R$ 3,21" ou "a diferença é igual ao saldo anterior") em vez de só mostrar "Divergente".

@@ -4,18 +4,13 @@ import { brl, brlNegativo, dataBR, dm, plural } from '../format.js';
 import { dica } from '../tooltip.js';
 import { toast } from '../toast.js';
 import { seletorFatura, semFaturas } from '../componentes.js';
+import { avisoExemplo } from '../exemplo.js';
+import { consumirRevelar, pedirRevelar } from '../revelar.js';
 import type { Ctx, Fatura, ResumoFatura } from '../types.js';
 
 const msgErro = (e: unknown): string => (e instanceof Error ? e.message : 'Algo deu errado.');
 
-const CHAVE_REVELAR = 'mare.revelar';
-function consumirRevelar(id: number): boolean {
-  try {
-    if (sessionStorage.getItem(CHAVE_REVELAR) === String(id)) { sessionStorage.removeItem(CHAVE_REVELAR); return true; }
-  } catch { /* sem sessionStorage */ }
-  return false;
-}
-export function pedirRevelar(id: number): void { try { sessionStorage.setItem(CHAVE_REVELAR, String(id)); } catch { /* ignora */ } }
+export { pedirRevelar };  // faturas.ts importa daqui
 
 export default async function resumo(ctx: Ctx): Promise<HTMLElement> {
   const { state } = ctx;
@@ -37,7 +32,7 @@ export default async function resumo(ctx: Ctx): Promise<HTMLElement> {
   }
 
   const principal = h('div', { class: 'principal' }, categorias(res), maiores(res, fat.conta));
-  return h('div', {}, topo, h('div', { class: 'resumo-grade' }, lado, principal));
+  return h('div', {}, avisoExemplo(ctx), topo, h('div', { class: 'resumo-grade' }, lado, principal));
 }
 
 function ledger(fat: Fatura, ctx: Ctx, revelar: boolean): HTMLElement {
